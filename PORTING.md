@@ -1,5 +1,38 @@
 # Port provenance and remaining work
 
+## Selected-NPC maintenance follow-up — 2026-10-11
+
+Fetched donor remote master at `79bd428115c8f33b74b13de23b133d49c3f75c60`.
+Audited `src/Ai/Base/Actions/RepairAllAction.cpp`, `SellAction.cpp` and
+`BuyAction.cpp`. Repair uses native repair NPC eligibility, reputation discount
+and paid durability repair. Selling depends on donor item visitors and vendor/AH/
+profession classifications; current unknown usage cannot authorize a sale.
+Buying depends on budget, vendor stock, usage and consumable selection. Those
+dependencies remain ahead; NPC discovery/travel is not required for explicit repair.
+The three audited action files are unchanged between the previous `037c0141`
+reference and this new master. The new pin applies to this audit; older feature
+provenance remains pinned to its original donor revisions.
+
+Adaptation: a separate PlayerbotRepair adapter and bounded copied-intent mailbox
+submit native CMSG_REPAIR_ITEM on the world owner, with empty item GUID (all
+carried items) and guild-bank byte zero. Human-selected NPC replaces nearest-NPC
+discovery. Native Cata inventory order replaces donor weapon-first order. No
+gold cheat, guild funding, discovery/travel or donor death-count reset is ported.
+The default-off gate is `Playerbots.Maintenance.Repair.Enabled`; ordinary whisper
+and party/raid `repair` share authorization and raid subgroup routing.
+
+Execution rechecks gate, five-second expiry, attachment, human control, captured
+map/instance and native NPC eligibility for both players. Bot combat/flight/cast/
+teleport/logout/loading blocks execution. Only copied identifiers cross the
+mailbox; native pointers remain scoped to the synchronous world update. The
+result reports equipped missing durability and copper spent, including partial
+repairs. Handler submission is not a claim of complete carried-item restoration.
+Mailbox tests cover in-flight fencing, stale completion and timer wrap/expiry.
+Windows full-script worldserver/tests-common built and passed 433/433, including
+both new mailbox tests. Evidence: build-both/Testing/Temporary/LastTest.log.
+Linux and client validation of this follow-up remain pending; the published
+October 9 Linux 431/431 result below applies to its earlier source snapshot.
+
 ## Human-led party/quest release qualification — 2026-10-09
 
 This checkpoint packages the preceding gear/loot, native quest and passive

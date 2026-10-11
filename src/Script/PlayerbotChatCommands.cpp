@@ -24,6 +24,21 @@
 
 namespace
 {
+void RequestRepair(Player& sender, ObjectGuid botGuid)
+{
+    ChatHandler reply(sender.GetSession());
+    WorldSession* session = sWorld->FindServerOriginPlayerbot(botGuid);
+    Player* bot = session ? session->GetPlayer() : nullptr;
+    ObjectGuid npc = sender.GetTarget();
+    uint32 requester = sender.GetGUID().GetCounter();
+    if (!PlayerbotModuleRepairEnabled()) { reply.SendSysMessage("Playerbot repair is disabled."); return; }
+    if (!bot || !bot->IsInWorld() || !sender.IsInWorld() || sender.GetMap() != bot->GetMap() ||
+        !npc.IsCreature() || !PlayerbotSecurity(*bot).CheckLevelFor(PLAYERBOT_SECURITY_ALLOW_ALL, sender) ||
+        (session->GetServerOriginFollowTargetGuidLow() != requester && session->GetServerOriginPartyControllerGuidLow() != requester))
+    { reply.SendSysMessage("Select a nearby repair NPC with your controlled bot on the same map/instance."); return; }
+    reply.SendSysMessage(session->RequestPlayerbotRepair(requester, npc.GetRawValue(), sender.GetMapId(), sender.GetInstanceId()) ?
+        "Repair requested using the bot's own money; wait for the native result." : "Repair request busy or disabled.");
+}
 void RequestQuestCommand(Player& sender, ObjectGuid botGuid, uint32 quest,
     PlayerbotQuestAccept::Operation action = PlayerbotQuestAccept::Operation::Accept, uint32 item = 0)
 {
@@ -108,6 +123,7 @@ public:
 
         std::string command = NormalizePlayerbotControlChat(message);
         ChatHandler reply(sender->GetSession());
+        if (command == "repair") { RequestRepair(*sender, receiver->GetGUID()); return; }
         if (auto inspection = PlayerbotQuestAccept::ParseInspection(command))
         { RequestQuestCommand(*sender, receiver->GetGUID(), 0, *inspection); return; }
         if (PlayerbotQuestAccept::RecognizesDrop(command))
@@ -200,6 +216,7 @@ public:
         bool range = ExtractPlayerbotRangeChat(command, rangeParam);
         bool strategy = PlayerbotStrategyControl::Recognizes(command);
         bool gear = IsPlayerbotGearInspection(command);
+        bool repair = command == "repair";
         bool applyGear = IsPlayerbotGearApply(command);
         bool acceptQuest = PlayerbotQuestAccept::Recognizes(command);
         auto inspectQuests = PlayerbotQuestAccept::ParseInspection(command);
@@ -211,7 +228,7 @@ public:
         uint32 quest = acceptArgs ? acceptArgs->Quest : 0;
         if (acceptQuest && !acceptArgs)
         { ChatHandler(sender->GetSession()).SendSysMessage("Select a nearby quest giver and use accept <numeric quest ID>."); return; }
-        if (!inspectQuests && !rewardQuest && !acceptQuest && !applyGear && !gear && !range && !strategy && !ParsePlayerbotControlChat(command, action))
+        if (!repair && !inspectQuests && !rewardQuest && !acceptQuest && !applyGear && !gear && !range && !strategy && !ParsePlayerbotControlChat(command, action))
             return;
         if (strategy && !PlayerbotStrategyControl::Parse(command))
         {
@@ -234,6 +251,7 @@ public:
                     group->GetMemberGroup(entry.Guid)))
                 continue;
             // Dispatch independently rechecks native identity and full control.
+            if (repair) { RequestRepair(*sender, entry.Guid); continue; }
             if (gear) { ReportGear(*sender, entry.Guid); continue; }
             if (applyGear) { RequestGearApply(*sender, entry.Guid); continue; }
             if (acceptQuest) { RequestQuestCommand(*sender, entry.Guid, quest, acceptArgs->Action); continue; }

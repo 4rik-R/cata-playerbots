@@ -123,6 +123,20 @@ It still needs sustained-party qualification before broader use.
 
 ## Chat and addon controls
 
+### Maintenance
+
+With `Playerbots.Maintenance.Repair.Enabled = 1`, select a nearby repair NPC and
+whisper a controlled bot `repair`, or use party/raid chat with the usual subgroup
+scope. Both human and bot must be eligible to interact with the captured NPC.
+The request expires after five seconds and rechecks control, location and idle
+state on the world owner. Native repair-all uses bot funds and reputation discount;
+insufficient money can leave partial repairs. Replies report observed equipped
+durability and copper spent. Client qualification is pending. Selling, purchases
+and automatic NPC travel remain ahead.
+The October 11 follow-up built Windows worldserver/tests-common and passed
+433/433 tests. Its Linux validation remains pending; the release table above
+describes the published October 9 source.
+
 ### Human-led quests
 
 Quest settings under `Playerbots.Quest` default off. The current controller can

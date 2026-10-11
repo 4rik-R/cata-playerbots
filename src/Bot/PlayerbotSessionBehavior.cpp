@@ -610,6 +610,7 @@ void PlayerbotSessionBehavior::SelectEngineState()
 }
 void PlayerbotSessionBehavior::UpdateWorld()
 {
+    PlayerbotRepair::Update(_session, _repairCommands);
     PlayerbotQuestAccept::Update(_session, _questAcceptCommands);
     PlayerbotQuestShare::Update(_session, _questShareAttempt);
     if (!PlayerbotModuleLootRollEnabled()) _rollCommands.Cancel();
@@ -765,6 +766,10 @@ bool PlayerbotSessionBehavior::RequestPlayerbotEquip(uint32 requesterGuidLow)
 {
     return PlayerbotModuleStarterGearScoreEnabled() && PlayerbotModuleStarterEquipEnabled() &&
         _equipCommands.Post(requesterGuidLow, getMSTime());
+}
+bool PlayerbotSessionBehavior::RequestPlayerbotRepair(uint32 requesterGuidLow, uint64 npc, uint32 map, uint32 instance)
+{
+    return PlayerbotModuleRepairEnabled() && _repairCommands.Post(requesterGuidLow, npc, map, instance, getMSTime());
 }
 bool PlayerbotSessionBehavior::RequestPlayerbotQuestCommand(uint32 requesterGuidLow, uint32 quest, uint64 giver, uint32 map, uint32 instance, uint32 operation, uint32 item)
 {

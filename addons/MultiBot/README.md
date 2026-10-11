@@ -62,7 +62,8 @@ addon loading and HELLO/PING, active/offline roster and authorized lifecycle
 requests, then exercise basic group follow/stay/attack. The main attack command
 `do attack my target` is now accepted by the server; role-filtered attack
 commands remain unsupported. The enabled player lifecycle service advertises
-only ALT_ROSTER_V1/BOT_LIFECYCLE_V1; other UI requests remain unsupported or
+ALT_ROSTER_V1/BOT_LIFECYCLE_V1. Optional strategy gates additionally advertise
+STATE_FRAMING_V1 and STRATEGY_MUTATION_V1. Other UI requests remain unsupported or
 disabled. WotLK class/spec/talent data, strategy and
 inventory features are not made Cata-compatible by this loading patch.
 

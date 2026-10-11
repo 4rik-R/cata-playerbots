@@ -315,3 +315,7 @@ Playerbots.Quest.SyncLootWithPlayer.Enabled = 0
 # Optional passive engine diagnostics: 64 records/session, 60-second retention.
 # Engine/action-method outcomes only; not spell landing or complete decision coverage.
 Playerbots.Diagnostics.Actions.Enabled = 0
+
+# Explicit whisper/party repair at the human's selected nearby repair NPC.
+# Uses native repair-all and the bot's own funds; no guild-bank or money cheat.
+Playerbots.Maintenance.Repair.Enabled = 0

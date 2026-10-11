@@ -13,6 +13,8 @@
 #include "World.h"
 #include <atomic>
 namespace { std::atomic<bool> ActionHistoryEnabled { false }; }
+namespace { std::atomic<bool> RepairEnabled { false }; }
+bool PlayerbotModuleRepairEnabled() { return RepairEnabled.load(std::memory_order_relaxed); }
 bool PlayerbotModuleActionHistoryEnabled() { return ActionHistoryEnabled.load(std::memory_order_relaxed); }
 namespace { std::atomic<bool> RestEnabled { false }; }
 namespace { std::atomic<bool> HealerSaveManaEnabled { false }; }
@@ -99,6 +101,7 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
         std::memory_order_relaxed);
     QuestRewardEnabled.store(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Quest.Reward.Enabled", false),
         std::memory_order_relaxed);
+    RepairEnabled.store(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Maintenance.Repair.Enabled", false), std::memory_order_relaxed);
     QuestAcceptEnabled.store(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Quest.AcceptNpc.Enabled", false),
         std::memory_order_relaxed);
     QuestShareEnabled.store(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Quest.AcceptShared.Enabled", false),

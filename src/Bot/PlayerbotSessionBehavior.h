@@ -15,6 +15,7 @@
 #include "../Ai/Base/PlayerbotLootRoll.h"
 #include "../Ai/Base/PlayerbotQuestShare.h"
 #include "../Ai/Base/PlayerbotQuestAccept.h"
+#include "../Ai/Base/PlayerbotRepair.h"
 #include "Engine.h"
 #include "StateEngines.h"
 #include "../Ai/Base/PlayerbotCombatMovement.h"
@@ -34,6 +35,7 @@ public:
     void RequestServerOriginInstanceJoin(uint32 mapId) override;
     bool RequestPlayerbotRange(uint32 requesterGuidLow, std::string const& param) override;
     bool RequestPlayerbotEquip(uint32 requesterGuidLow) override;
+    bool RequestPlayerbotRepair(uint32 requesterGuidLow, uint64 npc, uint32 map, uint32 instance) override;
     bool RequestPlayerbotQuestCommand(uint32 requesterGuidLow, uint32 quest, uint64 giver, uint32 map, uint32 instance, uint32 operation, uint32 item) override;
     bool RequestPlayerbotStrategy(uint32 requesterGuidLow, std::string const& command,
         std::string const& token, std::string const& target, uint64 batch, PlayerbotStrategyBinding const& binding) override;
@@ -66,6 +68,7 @@ private:
     bool _engineTickedThisUpdate = false;
     PlayerbotQuestShare::Attempt _questShareAttempt; // world-owned native share receipt only
     PlayerbotQuestAccept::Mailbox _questAcceptCommands;
+    PlayerbotRepair::Mailbox _repairCommands;
     uint32 _restCheckTimer = 0;
     WorldSession& _session;
     // The adapter exists before login. The context/engine are made after the

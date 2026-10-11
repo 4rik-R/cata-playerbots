@@ -5,6 +5,7 @@
 #ifndef PLAYERBOTS_MODULE_CONFIG_H
 #define PLAYERBOTS_MODULE_CONFIG_H
 bool PlayerbotModuleActionHistoryEnabled();
+bool PlayerbotModuleRepairEnabled();
 
 bool PlayerbotModuleEngineWarriorBuffEnabled();
 bool PlayerbotModuleEngineWarriorCombatEnabled();
