@@ -11,6 +11,7 @@
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "../../Script/PlayerbotConfig.h"
 #include "ObjectMgr.h"
 #include "Random.h"
 #include "World.h"
@@ -262,7 +263,8 @@ std::string RandomPlayerbotMgr::Describe()
     return "Random playerbots " + state + ": target " + std::to_string(Settings.Count) +
         ", accounts " + std::to_string(accounts) + ", characters " + std::to_string(characters) +
         ", creating " + std::to_string(LastProvisioning) + ", online " + std::to_string(LastOnline) +
-        ", with failures " + std::to_string(failing) + ".";
+        ", with failures " + std::to_string(failing) +
+        ", grinding " + (PlayerbotModuleRandomGrindEnabled() ? "on" : "off") + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)
