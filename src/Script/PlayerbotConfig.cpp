@@ -8,9 +8,11 @@
 #include "PlayerbotManagedRoster.h"
 #include "PlayerbotAddonProtocol.h"
 #include "RandomPlayerbotFactory.h"
+#include "RandomPlayerbotMgr.h"
 #include "Config.h"
 #include "Log.h"
 #include "World.h"
+#include <algorithm>
 #include <atomic>
 namespace { std::atomic<bool> ActionHistoryEnabled { false }; }
 namespace { std::atomic<bool> RepairEnabled { false }; }
@@ -148,6 +150,14 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
     RandomPlayerbotFactory::SetProvisioningEnabled(factoryEnabled);
     RandomPlayerbotFactory::SetInspectionEnabled(factoryEnabled || (moduleConfigsValid &&
         sConfigMgr->GetBoolDefault("Playerbots.Factory.InspectionEnabled", false)));
+    RandomPlayerbotSettings randomSettings;
+    randomSettings.Enabled = moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Random.Enabled", false);
+    randomSettings.Count = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.Count", 50)));
+    randomSettings.AccountPrefix = sConfigMgr->GetStringDefault("Playerbots.Random.AccountPrefix", "RNDBOT");
+    randomSettings.LoginPerInterval = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.LoginPerInterval", 10)));
+    randomSettings.IntervalMs = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.IntervalSeconds", 20))) * 1000;
+    randomSettings.AllianceRatio = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.AllianceRatio", 50)));
+    RandomPlayerbotMgr::Configure(randomSettings);
     SetPlayerbotAddonBridgeEnabled(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.MultiBot.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_ENABLED, moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Dev.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_GREETING_ENABLED, sConfigMgr->GetBoolDefault("Playerbots.Dev.GreetingOnJoin", true));

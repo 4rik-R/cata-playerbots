@@ -7,6 +7,7 @@
 #include "PlayerbotDevFixture.h"
 #include "Player.h"
 #include "RandomPlayerbotFactory.h"
+#include "RandomPlayerbotMgr.h"
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "RBAC.h"
@@ -44,6 +45,7 @@ public:
             { "status2", rbac::RBAC_PERM_COMMAND_SERVER_DEBUG, true, &HandleDevPlayerbotStatus2Command, "" },
             { "slot", rbac::RBAC_PERM_COMMAND_SERVER_DEBUG, true, &HandleDevPlayerbotSlotCommand, "" },
             { "managed", rbac::RBAC_PERM_COMMAND_SERVER_DEBUG, true, &HandleManagedPlayerbotCommand, "" },
+            { "random", rbac::RBAC_PERM_COMMAND_SERVER_DEBUG, true, &HandleRandomPlayerbotCommand, "" },
         };
 
         return devPlayerbotCommandTable;
@@ -565,6 +567,30 @@ public:
         }
 
         handler->PSendSysMessage("Playerbot slot %u %s requested.", slot, action.c_str());
+        return true;
+    }
+
+    static bool HandleRandomPlayerbotCommand(ChatHandler* handler, char const* args)
+    {
+        if (handler->GetSession())
+        {
+            handler->SendSysMessage("Random Playerbot controls are console-only.");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        std::istringstream input(args ? args : "");
+        std::string action, extra;
+        input >> action >> extra;
+        if (!extra.empty() || (action != "status" && action != "start" && action != "stop"))
+        {
+            handler->SendSysMessage("Usage: server playerbotdev random <status|start|stop>");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+        if (action != "status")
+            RandomPlayerbotMgr::SetPaused(action == "stop");
+        handler->SendSysMessage(RandomPlayerbotMgr::Describe().c_str());
         return true;
     }
 
