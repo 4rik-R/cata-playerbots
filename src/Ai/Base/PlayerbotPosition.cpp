@@ -3,6 +3,7 @@
 #include "PlayerbotCombatMovement.h"
 #include "PlayerbotTargetSelection.h"
 #include "../../Bot/PlayerbotAI.h"
+#include "Creature.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "PointMovementGenerator.h"
