@@ -6,6 +6,7 @@
 #include "Log.h"
 #include "World.h"
 #include "RandomPlayerbotFactory.h"
+#include "RandomPlayerbotMgr.h"
 
 void AddSC_playerbot_chat_commands();
 void UpdatePlayerbotAddonStrategyBatches(); // World-thread inbox/ACK pump; never reads engines.
@@ -16,9 +17,10 @@ class PlayerbotsModuleWorldScript final : public WorldScript
 {
 public:
     PlayerbotsModuleWorldScript() : WorldScript("PlayerbotsModuleWorldScript") { }
-    void OnUpdate(uint32 /*diff*/) override
+    void OnUpdate(uint32 diff) override
     {
         RandomPlayerbotFactory::UpdateCallbacks();
+        RandomPlayerbotMgr::Update(diff);
         UpdatePlayerbotAddonStrategyBatches();
     }
     void OnStartup() override

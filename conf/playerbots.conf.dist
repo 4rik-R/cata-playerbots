@@ -319,3 +319,28 @@ Playerbots.Diagnostics.Actions.Enabled = 0
 # Explicit whisper/party repair at the human's selected nearby repair NPC.
 # Uses native repair-all and the bot's own funds; no guild-bank or money cheat.
 Playerbots.Maintenance.Repair.Enabled = 0
+
+#
+#    Playerbots.Random.Enabled
+#        Description: Automatic random population. Creates up to Count dedicated
+#                     accounts (AccountPrefix + 001, 002, ...) with an unstored random
+#                     password, one native character each (Warrior/Mage/Priest of
+#                     races without phased starting areas), and admits them in
+#                     batches as server-origin sessions. Bots idle where they log in.
+#                     Requires Playerbots.Managed.Enabled = 1 (core admission gate).
+#                     Lowering Count logs surplus bots out; nothing is deleted.
+#        Default:     0 - (Disabled)
+
+Playerbots.Random.Enabled = 0
+
+#    Playerbots.Random.Count             Target population (0-2000). Default 50.
+#    Playerbots.Random.AccountPrefix     1-10 letters/digits. Default RNDBOT.
+#    Playerbots.Random.LoginPerInterval  Admissions per interval (1-100). Default 10.
+#    Playerbots.Random.IntervalSeconds   Manager pass interval (1-600). Default 20.
+#    Playerbots.Random.AllianceRatio     Percent of new characters that are Alliance. Default 50.
+
+Playerbots.Random.Count = 50
+Playerbots.Random.AccountPrefix = "RNDBOT"
+Playerbots.Random.LoginPerInterval = 10
+Playerbots.Random.IntervalSeconds = 20
+Playerbots.Random.AllianceRatio = 50
