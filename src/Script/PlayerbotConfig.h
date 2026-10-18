@@ -6,6 +6,7 @@
 #define PLAYERBOTS_MODULE_CONFIG_H
 bool PlayerbotModuleActionHistoryEnabled();
 bool PlayerbotModuleRepairEnabled();
+bool PlayerbotModuleRandomGrindEnabled();
 
 bool PlayerbotModuleEngineWarriorBuffEnabled();
 bool PlayerbotModuleEngineWarriorCombatEnabled();

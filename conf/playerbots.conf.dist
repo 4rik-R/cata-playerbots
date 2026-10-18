@@ -344,3 +344,15 @@ Playerbots.Random.AccountPrefix = "RNDBOT"
 Playerbots.Random.LoginPerInterval = 10
 Playerbots.Random.IntervalSeconds = 20
 Playerbots.Random.AllianceRatio = 50
+
+#    Playerbots.Random.Grind.Enabled
+#        Description: Ungrouped random bots act on their own: wander near their
+#                     login spot, attack normal creatures of a fitting level
+#                     (bot level -3 to +1), sit until health/mana recover, loot
+#                     (needs the corpse-loot gate) and revive in place 30 seconds
+#                     after death. Inviting a bot or giving a follow command hands
+#                     control back to the player. Requires Playerbots.Random.Enabled.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+Playerbots.Random.Grind.Enabled = 0

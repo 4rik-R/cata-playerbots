@@ -6,6 +6,7 @@
 #define PLAYERBOT_SESSION_BEHAVIOR_H
 #include "PlayerbotSessionHooks.h"
 #include "ObjectGuid.h"
+#include "Position.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotReadyCheck.h"
 #include "../Ai/Base/PlayerbotMount.h"
@@ -58,6 +59,10 @@ private:
     void UpdateServerOriginResurrection();
     void UpdateServerOriginInstanceJoin();
     void UpdateServerOriginCombat(uint32 diff);
+    // Random-population bots without a human controller act as their own controller.
+    bool IsSoloGrinder(Player const& bot) const;
+    void UpdateSoloController();
+    void UpdateSoloGrind(uint32 diff);
     bool UpdateSupportReach(PlayerbotPartySupport::ReachKind start = PlayerbotPartySupport::ReachKind::None);
     void TickEngine(bool inCombat = false);
     void SelectEngineState();
@@ -129,6 +134,16 @@ private:
     uint32 _serverOriginActionCheckTimer = 0;
     uint32 _serverOriginAssistCheckTimer = 0;
     uint32 _serverOriginBuffCheckTimer = 0;
+    // Map-owned solo grinding state (random population only).
+    std::atomic<bool> _soloActive { false }; // read by the world-thread loot pump
+    bool _soloRecovering = false;
+    bool _soloHomeSet = false;
+    Position _soloHome;
+    uint32 _soloHomeMap = 0;
+    uint32 _soloSearchTimer = 0;
+    uint32 _soloWanderTimer = 0;
+    uint32 _soloDeadMs = 0;
+    uint32 _soloPullStartedMs = 0;
 
 };
 #endif

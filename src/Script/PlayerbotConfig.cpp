@@ -16,6 +16,8 @@
 #include <atomic>
 namespace { std::atomic<bool> ActionHistoryEnabled { false }; }
 namespace { std::atomic<bool> RepairEnabled { false }; }
+namespace { std::atomic<bool> RandomGrindEnabled { false }; }
+bool PlayerbotModuleRandomGrindEnabled() { return RandomGrindEnabled.load(std::memory_order_relaxed); }
 bool PlayerbotModuleRepairEnabled() { return RepairEnabled.load(std::memory_order_relaxed); }
 bool PlayerbotModuleActionHistoryEnabled() { return ActionHistoryEnabled.load(std::memory_order_relaxed); }
 namespace { std::atomic<bool> RestEnabled { false }; }
@@ -158,6 +160,8 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
     randomSettings.IntervalMs = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.IntervalSeconds", 20))) * 1000;
     randomSettings.AllianceRatio = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.AllianceRatio", 50)));
     RandomPlayerbotMgr::Configure(randomSettings);
+    RandomGrindEnabled.store(randomSettings.Enabled && sConfigMgr->GetBoolDefault("Playerbots.Random.Grind.Enabled", false),
+        std::memory_order_relaxed);
     SetPlayerbotAddonBridgeEnabled(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.MultiBot.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_ENABLED, moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Dev.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_GREETING_ENABLED, sConfigMgr->GetBoolDefault("Playerbots.Dev.GreetingOnJoin", true));
