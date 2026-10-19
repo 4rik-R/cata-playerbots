@@ -63,6 +63,8 @@ private:
     bool IsSoloGrinder(Player const& bot) const;
     void UpdateSoloController();
     void UpdateSoloGrind(uint32 diff);
+    // World thread: levels, gear and placement of random bots (M3a).
+    void UpdateRandomProgression();
     bool UpdateSupportReach(PlayerbotPartySupport::ReachKind start = PlayerbotPartySupport::ReachKind::None);
     void TickEngine(bool inCombat = false);
     void SelectEngineState();
@@ -144,6 +146,13 @@ private:
     uint32 _soloWanderTimer = 0;
     uint32 _soloDeadMs = 0;
     uint32 _soloPullStartedMs = 0;
+    std::atomic<bool> _soloHomeReset { false }; // world sets after a relocation, map consumes
+    // World-owned random progression state.
+    bool _progressChecked = false;
+    uint32 _progressLevel = 0;
+    uint32 _progressCheckMs = 0;
+    uint32 _progressRelocateMs = 0;
+    bool _progressFarTeleport = false;
 
 };
 #endif

@@ -41,6 +41,8 @@
 #include "Random/RandomPlayerbotMgr.h"
 #include "Random/RandomPlayerbotGrind.h"
 #include "Random/RandomPlayerbotGrindTarget.h"
+#include "Random/RandomPlayerbotLevels.h"
+#include "Random/RandomPlayerbotProgression.h"
 #include "WorldPacket.h"
 #include "../Ai/Base/PlayerbotItemUsage.h"
 #include "WarriorAiObjectContext.h"
@@ -263,7 +265,7 @@ void PlayerbotSessionBehavior::UpdateMap(uint32 diff)
             ChatHandler(requester->GetSession()).PSendSysMessage("Playerbot %s: gear apply %s.", bot->GetName().c_str(),
                 result == PlayerbotEquipmentApply::Result::Confirmed ? "confirmed one native slot change" :
                 result == PlayerbotEquipmentApply::Result::NoChange ? "found no qualified safe change" : "rejected; authority, state or inventory was not eligible");
-        if (bot) TC_LOG_INFO("server", "PB-EQUIP: %s result=%u", bot->GetName().c_str(), uint32(result));
+        if (bot) TC_LOG_INFO("module.playerbots", "PB-EQUIP: %s result=%u", bot->GetName().c_str(), uint32(result));
     }
     if (auto request = _strategyCommands.Take(getMSTime()))
     {
@@ -564,7 +566,7 @@ void PlayerbotSessionBehavior::CompleteNearTeleport()
     bot->StopMoving();
     uint8 expected = 0;
     _serverOriginCombatRequest.compare_exchange_strong(expected, 2);
-    TC_LOG_INFO("server", "PB-TRANSFER: %s completed native same-map teleport", bot->GetName().c_str());
+    TC_LOG_INFO("module.playerbots", "PB-TRANSFER: %s completed native same-map teleport", bot->GetName().c_str());
 }
 
 void PlayerbotSessionBehavior::TickEngine(bool inCombat)
@@ -585,7 +587,7 @@ void PlayerbotSessionBehavior::TickEngine(bool inCombat)
             !rebuff.HasWork() && !PlayerbotPartyBuff::RebuffOnGlobalCooldown(_ai))
         {
             rebuff.Finish();
-            TC_LOG_INFO("server", "PB-REBUFF: %s ended pass with no current eligible buff work", bot->GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-REBUFF: %s ended pass with no current eligible buff work", bot->GetName().c_str());
         }
     }
 }
@@ -610,12 +612,13 @@ void PlayerbotSessionBehavior::SelectEngineState()
     auto state = !bot || !bot->IsAlive() ? StateEngines::State::Dead :
         (bot->IsInCombat() || _serverOriginAttacking.load() ? StateEngines::State::Combat : StateEngines::State::NonCombat);
     if (_stateEngines->Select(state) && bot)
-        TC_LOG_INFO("server", "PB-STATE: %s entered %s", bot->GetName().c_str(),
+        TC_LOG_INFO("module.playerbots", "PB-STATE: %s entered %s", bot->GetName().c_str(),
             state == StateEngines::State::Dead ? "dead" : state == StateEngines::State::Combat ? "combat" : "noncombat");
     _engine = &_stateEngines->Active();
 }
 void PlayerbotSessionBehavior::UpdateWorld()
 {
+    UpdateRandomProgression();
     PlayerbotRepair::Update(_session, _repairCommands);
     PlayerbotQuestAccept::Update(_session, _questAcceptCommands);
     PlayerbotQuestShare::Update(_session, _questShareAttempt);
@@ -636,7 +639,7 @@ void PlayerbotSessionBehavior::UpdateWorld()
                 WorldPacket packet(CMSG_LOOT_ROLL, 13);
                 packet << ObjectGuid(reply->Original.Identity.Roll) << uint32(reply->Original.Identity.Slot) << reply->Choice;
                 _session.HandleLootRoll(packet);
-                TC_LOG_INFO("server", "PB-ROLL: %s submitted native vote %u for item %u roll %llu", bot->GetName().c_str(),
+                TC_LOG_INFO("module.playerbots", "PB-ROLL: %s submitted native vote %u for item %u roll %llu", bot->GetName().c_str(),
                     uint32(reply->Choice), reply->Original.Identity.Entry, static_cast<unsigned long long>(reply->Original.Identity.Roll));
             }
         uint32 now = getMSTime();
@@ -671,7 +674,7 @@ void PlayerbotSessionBehavior::UpdateWorld()
             WorldPacket answer(MSG_RAID_READY_CHECK, 1);
             answer << uint8(reply->Ready ? 1 : 0); // Cata input is state only, NOT donor GUID + state.
             _session.HandleRaidReadyCheckOpcode(answer);
-            TC_LOG_INFO("server", "PB-READY: %s answered ready check %llu: %s", bot->GetName().c_str(),
+            TC_LOG_INFO("module.playerbots", "PB-READY: %s answered ready check %llu: %s", bot->GetName().c_str(),
                 static_cast<unsigned long long>(reply->Identity.Check), reply->Ready ? "ready" : "not ready");
         }
     }
@@ -693,7 +696,7 @@ void PlayerbotSessionBehavior::UpdateWorld()
         {
             if (_player->GetMapId() == _serverOriginInstanceJoinMapId)
             {
-                TC_LOG_INFO("server", "PB-PARTY: %s entered dungeon map %u instance %u", _player->GetName().c_str(),
+                TC_LOG_INFO("module.playerbots", "PB-PARTY: %s entered dungeon map %u instance %u", _player->GetName().c_str(),
                     _player->GetMapId(), _player->GetInstanceId());
                 uint32 controllerGuidLow = _serverOriginPartyLeaderGuidLow;
                 Group* group = _player->GetGroup();
@@ -706,7 +709,7 @@ void PlayerbotSessionBehavior::UpdateWorld()
                     RequestServerOriginHold();
             }
             else
-                TC_LOG_INFO("server", "PB-PARTY: %s dungeon transfer failed; arrived on map %u", _player->GetName().c_str(), _player->GetMapId());
+                TC_LOG_INFO("module.playerbots", "PB-PARTY: %s dungeon transfer failed; arrived on map %u", _player->GetName().c_str(), _player->GetMapId());
             _serverOriginInstanceAckBudget = 0;
         }
     }
@@ -903,7 +906,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
         {
             _ai.SetStaying(true);
             _stateEngines->Get(StateEngines::State::NonCombat).AddStrategy("stay");
-            TC_LOG_INFO("server", "PB-STAY: %s captured current position", _player->GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-STAY: %s captured current position", _player->GetName().c_str());
             if (Player* owner = _ai.GetController())
                 ChatHandler(owner->GetSession()).PSendSysMessage("Playerbot %s: stay position set.", _player->GetName().c_str());
         }
@@ -928,14 +931,14 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
             _serverOriginAutoAssistEnabled.store(true);
             _serverOriginFollowTraceRemainingMs = 60000;
             _serverOriginFollowTraceSampleTimerMs = 0;
-            TC_LOG_INFO("server", "PB-01: %s following %s", _player->GetName().c_str(), owner->GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-01: %s following %s", _player->GetName().c_str(), owner->GetName().c_str());
             if (_player->getClass() == CLASS_PRIEST)
                 PlayerbotPriest::LogKnownAbilities(*_player);
         }
         else
         {
             hold(false);
-            TC_LOG_INFO("server", "PB-01: follow target %u unavailable on bot map; holding", uint32(request));
+            TC_LOG_INFO("module.playerbots", "PB-01: follow target %u unavailable on bot map; holding", uint32(request));
         }
     }
 
@@ -950,17 +953,17 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
             if (died)
                 _serverOriginRecoveryOwnerGuidLow = activeOwner;
             if (!_player->IsAlive())
-                TC_LOG_INFO("server", "PB-DEATH: bot %s died while following; holding", _player->GetName().c_str());
+                TC_LOG_INFO("module.playerbots", "PB-DEATH: bot %s died while following; holding", _player->GetName().c_str());
             else if (owner && !owner->IsAlive())
-                TC_LOG_INFO("server", "PB-DEATH: human owner %s died; bot %s holding", owner->GetName().c_str(), _player->GetName().c_str());
+                TC_LOG_INFO("module.playerbots", "PB-DEATH: human owner %s died; bot %s holding", owner->GetName().c_str(), _player->GetName().c_str());
             else
-                TC_LOG_INFO("server", "PB-01: follow target left bot map; holding");
+                TC_LOG_INFO("module.playerbots", "PB-01: follow target left bot map; holding");
         }
         else if (_serverOriginFollowTraceRemainingMs)
         {
             if (_serverOriginFollowTraceSampleTimerMs <= diff)
             {
-                TC_LOG_INFO("server", "PB-01 trace: t=%us owner=(%.2f,%.2f,%.2f) bot=(%.2f,%.2f,%.2f) distance=%.1f ownerFlags=%u botMotion=%u",
+                TC_LOG_INFO("module.playerbots", "PB-01 trace: t=%us owner=(%.2f,%.2f,%.2f) bot=(%.2f,%.2f,%.2f) distance=%.1f ownerFlags=%u botMotion=%u",
                     (60000 - _serverOriginFollowTraceRemainingMs) / 1000,
                     owner->GetPositionX(), owner->GetPositionY(), owner->GetPositionZ(),
                     _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(),
@@ -1013,7 +1016,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
             RequestServerOriginFollow(ownerGuidLow);
             if (partyControlled)
                 _serverOriginPartyControllerGuidLow.store(ownerGuidLow);
-            TC_LOG_INFO("server", "PB-RECOVERY: %s and owner %s are alive nearby; resuming follow", _player->GetName().c_str(), owner->GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-RECOVERY: %s and owner %s are alive nearby; resuming follow", _player->GetName().c_str(), owner->GetName().c_str());
         }
     }
 }
@@ -1031,7 +1034,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginParty()
         {
             RequestServerOriginHold();
             _serverOriginPartyLeaderGuidLow = 0;
-            TC_LOG_INFO("server", "PB-PARTY: %s lost invitation-adopted controller GUID %u; holding", _player->GetName().c_str(), controllerGuidLow);
+            TC_LOG_INFO("module.playerbots", "PB-PARTY: %s lost invitation-adopted controller GUID %u; holding", _player->GetName().c_str(), controllerGuidLow);
         }
     }
 
@@ -1053,7 +1056,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginParty()
     {
         response.Accept = false;
         _session.HandlePartyInviteResponseOpcode(response);
-        TC_LOG_INFO("server", "PB-PARTY: %s declined invitation without an available human leader", _player->GetName().c_str());
+        TC_LOG_INFO("module.playerbots", "PB-PARTY: %s declined invitation without an available human leader", _player->GetName().c_str());
         return;
     }
 
@@ -1071,7 +1074,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginParty()
             RequestServerOriginHold();
         }
         _serverOriginPartyControllerGuidLow.store(ownerGuidLow);
-        TC_LOG_INFO("server", "PB-PARTY: %s joined followed leader GUID %u's party; controller adopted from invitation", _player->GetName().c_str(), ownerGuidLow);
+        TC_LOG_INFO("module.playerbots", "PB-PARTY: %s joined followed leader GUID %u's party; controller adopted from invitation", _player->GetName().c_str(), ownerGuidLow);
         PlayerbotGroup::GreetOnJoin(*_player, *owner);
     }
 }
@@ -1100,7 +1103,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginResurrection()
         response << member->GetGUID() << uint8(1);
         _session.HandleResurrectResponseOpcode(response);
         if (bot->IsAlive())
-            TC_LOG_INFO("server", "PB-RECOVERY: %s accepted resurrection from %s", bot->GetName().c_str(), member->GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-RECOVERY: %s accepted resurrection from %s", bot->GetName().c_str(), member->GetName().c_str());
         return;
     }
 }
@@ -1124,19 +1127,19 @@ void PlayerbotSessionBehavior::UpdateServerOriginInstanceJoin()
         !_player->IsAlive() || _player->IsInCombat() || _player->IsBeingTeleportedFar() ||
         !entrance || !group->GetBoundInstance(mapEntry))
     {
-        TC_LOG_INFO("server", "PB-PARTY: dungeon join rejected for %s map %u; requires a living, idle bot in its followed leader's bound party dungeon", _player->GetName().c_str(), mapId);
+        TC_LOG_INFO("module.playerbots", "PB-PARTY: dungeon join rejected for %s map %u; requires a living, idle bot in its followed leader's bound party dungeon", _player->GetName().c_str(), mapId);
         return;
     }
 
     if (!_player->TeleportTo(mapId, entrance->target_X, entrance->target_Y, entrance->target_Z, entrance->target_Orientation))
     {
-        TC_LOG_INFO("server", "PB-PARTY: dungeon join denied by core entry checks for %s map %u", _player->GetName().c_str(), mapId);
+        TC_LOG_INFO("module.playerbots", "PB-PARTY: dungeon join denied by core entry checks for %s map %u", _player->GetName().c_str(), mapId);
         return;
     }
 
     _serverOriginInstanceJoinMapId = mapId;
     _serverOriginInstanceAckBudget = 2; // one target transfer, at most one homebind fallback
-    TC_LOG_INFO("server", "PB-PARTY: %s began dungeon transfer to map %u", _player->GetName().c_str(), mapId);
+    TC_LOG_INFO("module.playerbots", "PB-PARTY: %s began dungeon transfer to map %u", _player->GetName().c_str(), mapId);
 }
 
 bool PlayerbotSessionBehavior::UpdateSupportReach(PlayerbotPartySupport::ReachKind start)
@@ -1181,7 +1184,7 @@ bool PlayerbotSessionBehavior::UpdateSupportReach(PlayerbotPartySupport::ReachKi
                 // Snapshot destination, native pathfinding; no retained Player pointer.
                 // Re-evaluate at the healing cadence and stop upon entering heal range.
                 bot->GetMotionMaster()->MovePoint(0, target->GetPosition(), true);
-                TC_LOG_INFO("server", "PB-HEAL: %s closing %s gap to %s",
+                TC_LOG_INFO("module.playerbots", "PB-HEAL: %s closing %s gap to %s",
                     bot->GetName().c_str(), kind == PlayerbotPartySupport::ReachKind::Resurrect ? "resurrection" : "healing", target->GetName().c_str());
             }
     }
@@ -1220,7 +1223,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             {
                 if (!_priestEngineHealAnnounced)
                 {
-                    TC_LOG_INFO("server", "PB-ENGINE: %s Priest healing routed through engine", _player->GetName().c_str());
+                    TC_LOG_INFO("module.playerbots", "PB-ENGINE: %s Priest healing routed through engine", _player->GetName().c_str());
                     _priestEngineHealAnnounced = true;
                 }
                 TickEngine(_player->IsInCombat());
@@ -1238,7 +1241,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         _ai.ClearCurrentTarget();
         _serverOriginSupportReachGuid.Clear();
         if (_serverOriginAttacking.exchange(false))
-            TC_LOG_INFO("server", "PB-02: %s ceased attack", _player->GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-02: %s ceased attack", _player->GetName().c_str());
         _serverOriginCombatTargetGuid.Clear();
         _serverOriginAutoAssistedAttack = false;
         _serverOriginActionCheckTimer = 0;
@@ -1311,7 +1314,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             _serverOriginMeleeStance = tanking ? 2 : 1;
             _player->GetMotionMaster()->MoveChase(target, std::nullopt, ChaseAngle(PlayerbotGroup::MeleeChaseAngle(tanking)));
         }
-        TC_LOG_INFO("server", "PB-02: %s %s %s", _player->GetName().c_str(), autoAssisted ? "auto-assisting" : "attacking", target->GetName().c_str());
+        TC_LOG_INFO("module.playerbots", "PB-02: %s %s %s", _player->GetName().c_str(), autoAssisted ? "auto-assisting" : "attacking", target->GetName().c_str());
         if (_player->getClass() == CLASS_PRIEST)
             PlayerbotPriest::LogKnownAbilities(*_player);
         else if (ranged)
@@ -1332,7 +1335,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         Creature* target = selected ? selected->ToCreature() : nullptr;
         if (!validTarget(owner, target))
         {
-            TC_LOG_INFO("server", "PB-02: attack rejected; selected=%s ownerDist=%.1f botTargetDist=%.1f ownerTargetDist=%.1f targetAlive=%u validTarget=%u lineOfSight=%u",
+            TC_LOG_INFO("module.playerbots", "PB-02: attack rejected; selected=%s ownerDist=%.1f botTargetDist=%.1f ownerTargetDist=%.1f targetAlive=%u validTarget=%u lineOfSight=%u",
                 selected ? selected->GetName().c_str() : "none", owner ? _player->GetDistance(owner) : -1.0f,
                 target ? _player->GetDistance(target) : -1.0f, owner && target ? owner->GetDistance(target) : -1.0f,
                 target && target->IsAlive(), target && _player->IsValidAttackTarget(target), target && _player->IsWithinLOSInMap(target));
@@ -1341,7 +1344,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         else
         {
             if (!beginAttack(target, false))
-                TC_LOG_INFO("server", "PB-02: attack rejected by core combat rules");
+                TC_LOG_INFO("module.playerbots", "PB-02: attack rejected by core combat rules");
         }
     }
 
@@ -1422,7 +1425,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             {
                 if (!_warriorEngineBuffAnnounced)
                 {
-                    TC_LOG_INFO("server", "PB-ENGINE: %s Warrior buff routed through engine", _player->GetName().c_str());
+                    TC_LOG_INFO("module.playerbots", "PB-ENGINE: %s Warrior buff routed through engine", _player->GetName().c_str());
                     _warriorEngineBuffAnnounced = true;
                 }
                 TickEngine();
@@ -1465,12 +1468,12 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             if (target && !target->IsAlive())
             {
                 _ai.RecordDefeatedCreature(target->GetGUID(), getMSTime());
-                TC_LOG_INFO("server", "PB-02: %s target died; returning to follow", _player->GetName().c_str());
+                TC_LOG_INFO("module.playerbots", "PB-02: %s target died; returning to follow", _player->GetName().c_str());
             }
             else if (target && PlayerbotTargetSelection::IsProtectedTarget(*target))
-                TC_LOG_INFO("server", "PB-02: %s target protected by control; returning to follow", _player->GetName().c_str());
+                TC_LOG_INFO("module.playerbots", "PB-02: %s target protected by control; returning to follow", _player->GetName().c_str());
             else if (ownerBeyondLeash || targetBeyondLeash)
-                TC_LOG_INFO("server", "PB-02: %s exceeded combat leash; returning to follow", _player->GetName().c_str());
+                TC_LOG_INFO("module.playerbots", "PB-02: %s exceeded combat leash; returning to follow", _player->GetName().c_str());
             cease();
             tickPriest();
             return;
@@ -1508,7 +1511,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                     return; // Native Attack rejected the replacement after cease.
                 target = candidate;
                 _serverOriginActionCheckTimer = 1000;
-                TC_LOG_INFO("server", "PB-ROLE: %s reassessed DPS target to %s",
+                TC_LOG_INFO("module.playerbots", "PB-ROLE: %s reassessed DPS target to %s",
                     _player->GetName().c_str(), target->GetName().c_str());
             }
         }
@@ -1535,7 +1538,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                 {
                     target = candidate;
                     _serverOriginActionCheckTimer = 1000;
-                    TC_LOG_INFO("server", "PB-ROLE: %s recovering party aggro from %s",
+                    TC_LOG_INFO("module.playerbots", "PB-ROLE: %s recovering party aggro from %s",
                         _player->GetName().c_str(), victim->GetName().c_str());
                 }
                 else
@@ -1555,7 +1558,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                 char const* strategy = PlayerbotSpec::CombatStrategy(CLASS_MAGE, primaryTree);
                 if (!_mageEngineCombatAnnounced)
                 {
-                    TC_LOG_INFO("server", "PB-ENGINE: %s Mage combat routed through %s strategy", _player->GetName().c_str(), strategy);
+                    TC_LOG_INFO("module.playerbots", "PB-ENGINE: %s Mage combat routed through %s strategy", _player->GetName().c_str(), strategy);
                     _mageEngineCombatAnnounced = true;
                 }
                 TickEngine(true);
@@ -1580,7 +1583,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             char const* strategy = PlayerbotSpec::CombatStrategy(CLASS_WARRIOR, primaryTree);
             if (!_warriorEngineCombatAnnounced)
             {
-                TC_LOG_INFO("server", "PB-ENGINE: %s Warrior combat routed through %s strategy", _player->GetName().c_str(), strategy);
+                TC_LOG_INFO("module.playerbots", "PB-ENGINE: %s Warrior combat routed through %s strategy", _player->GetName().c_str(), strategy);
                 _warriorEngineCombatAnnounced = true;
             }
             TickEngine(true);
@@ -1606,6 +1609,8 @@ void PlayerbotSessionBehavior::UpdateSoloController()
         return;
     }
     bool solo = IsSoloGrinder(*bot);
+    if (_soloHomeReset.exchange(false))
+        _soloHomeSet = false; // relocated by the world thread: grind around the new spot
     if (solo)
     {
         _ai.SetController(bot->GetGUID());
@@ -1693,4 +1698,62 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
         destination.Relocate(x, y, z);
     }
     bot->GetMotionMaster()->MovePoint(0, destination, true);
+}
+
+void PlayerbotSessionBehavior::UpdateRandomProgression()
+{
+    RandomPlayerbotProgression::Settings const& settings = RandomPlayerbotProgression::GetSettings();
+    Player* bot = _session.GetPlayer();
+    if (!settings.Enabled || !_session.IsServerOrigin() || !bot || !RandomPlayerbotProgression::Ready() ||
+        !RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
+        return;
+
+    // A relocation to another map needs the client's worldport acknowledgement.
+    if (_progressFarTeleport && bot->IsBeingTeleportedFar())
+    {
+        _progressFarTeleport = false;
+        _session.HandleMoveWorldportAck();
+        _soloHomeReset = true;
+        return;
+    }
+    _progressFarTeleport = false;
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !bot->IsAlive() || bot->IsInCombat())
+        return;
+    uint32 now = getMSTime();
+    if (getMSTimeDiff(_progressCheckMs, now) < 1000)
+        return;
+    _progressCheckMs = now;
+
+    uint32 level = bot->getLevel();
+    if (!_progressChecked)
+    {
+        _progressChecked = true;
+        uint32 target = RandomPlayerbotLevels::TargetLevel(bot->GetGUID().GetCounter(), settings.MinLevel, settings.MaxLevel);
+        if (!bot->GetGroup() && RandomPlayerbotLevels::NeedsInitialization(level, target))
+        {
+            RandomPlayerbotProgression::Initialize(*bot, target);
+            _progressRelocateMs = 0; // place it right away
+        }
+        _progressLevel = bot->getLevel();
+        level = _progressLevel;
+    }
+    else if (level != _progressLevel)
+    {
+        if (level > _progressLevel)
+            RandomPlayerbotProgression::ApplyLevelUp(*bot, _progressLevel);
+        _progressLevel = level;
+    }
+
+    // Only ungrouped grinders move; start-zone levels stay where they were created.
+    if (!_soloActive.load() || bot->GetGroup() || level <= RandomPlayerbotLevels::StartZoneLevel ||
+        RandomPlayerbotProgression::InFittingZone(*bot))
+        return;
+    if (_progressRelocateMs && getMSTimeDiff(_progressRelocateMs, now) < 60000)
+        return;
+    _progressRelocateMs = now ? now : 1;
+    if (RandomPlayerbotProgression::Relocate(*bot))
+    {
+        _progressFarTeleport = bot->IsBeingTeleportedFar();
+        _soloHomeReset = true;
+    }
 }

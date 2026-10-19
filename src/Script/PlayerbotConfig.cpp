@@ -9,6 +9,7 @@
 #include "PlayerbotAddonProtocol.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotMgr.h"
+#include "RandomPlayerbotProgression.h"
 #include "Config.h"
 #include "Log.h"
 #include "World.h"
@@ -162,6 +163,11 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
     RandomPlayerbotMgr::Configure(randomSettings);
     RandomGrindEnabled.store(randomSettings.Enabled && sConfigMgr->GetBoolDefault("Playerbots.Random.Grind.Enabled", false),
         std::memory_order_relaxed);
+    RandomPlayerbotProgression::Settings progression;
+    progression.Enabled = randomSettings.Enabled && sConfigMgr->GetBoolDefault("Playerbots.Random.Level.Enabled", false);
+    progression.MinLevel = uint32(std::max(1, sConfigMgr->GetIntDefault("Playerbots.Random.Level.Min", 1)));
+    progression.MaxLevel = uint32(std::max(1, sConfigMgr->GetIntDefault("Playerbots.Random.Level.Max", 85)));
+    RandomPlayerbotProgression::Configure(progression);
     SetPlayerbotAddonBridgeEnabled(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.MultiBot.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_ENABLED, moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Dev.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_GREETING_ENABLED, sConfigMgr->GetBoolDefault("Playerbots.Dev.GreetingOnJoin", true));
