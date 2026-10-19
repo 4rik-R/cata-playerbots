@@ -21,6 +21,8 @@ public:
     // Console controls: pause stops every random bot and halts admission until resumed.
     static void SetPaused(bool paused);
     static std::string Describe();
+    // Any thread. True for accounts this manager created or adopted by name.
+    static bool IsRandomAccount(uint32_t accountId);
 };
 
 #endif

@@ -37,6 +37,10 @@
 #include "../Script/PlayerbotConfig.h"
 #include "PlayerbotWarriorStrategy.h"
 #include "World.h"
+#include "Random.h"
+#include "Random/RandomPlayerbotMgr.h"
+#include "Random/RandomPlayerbotGrind.h"
+#include "Random/RandomPlayerbotGrindTarget.h"
 #include "WorldPacket.h"
 #include "../Ai/Base/PlayerbotItemUsage.h"
 #include "WarriorAiObjectContext.h"
@@ -173,6 +177,7 @@ void PlayerbotSessionBehavior::UpdateMap(uint32 diff)
         SelectEngineState();
     }
     UpdateServerOriginParty();
+    UpdateSoloController();
     if (_serverOriginResurrectionCheckTimer > diff)
         _serverOriginResurrectionCheckTimer -= diff;
     else
@@ -360,6 +365,7 @@ void PlayerbotSessionBehavior::UpdateMap(uint32 diff)
         }
     }
     UpdateServerOriginCombat(diff);
+    UpdateSoloGrind(diff);
     SelectEngineState();
     if (auto request = _readyChecks.TakeRequest(getMSTime()))
     {
@@ -672,8 +678,11 @@ void PlayerbotSessionBehavior::UpdateWorld()
     if (_serverOriginMovementRequest.load() || _serverOriginCombatRequest.load() ||
         _serverOriginInstanceJoinRequest.load() || _serverOriginAttacking.load())
         _ai.LootRequests().Cancel();
+    uint32 lootController = _serverOriginFollowTargetGuidLow.load();
+    if (!lootController && _soloActive.load())
+        lootController = _session.GetServerOriginCharacterGuid().GetCounter(); // solo bots loot for themselves
     PlayerbotCorpseLoot::ProcessWorld(_session, _ai.LootRequests(),
-        ObjectGuid::Create<HighGuid::Player>(_serverOriginFollowTargetGuidLow.load()));
+        ObjectGuid::Create<HighGuid::Player>(lootController));
     Player* _player = _session.GetPlayer();
     if (_session.IsServerOrigin() && _player && _serverOriginInstanceAckBudget && _player->IsBeingTeleportedFar())
     {
@@ -1184,12 +1193,21 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
     Player* _player = _session.GetPlayer();
     if (!_session.IsServerOrigin() || !_player || !_player->IsInWorld())
         return;
+    bool const solo = _soloActive.load();
+    // Followed human, or the solo bot itself as its own controller.
+    auto combatOwner = [this, _player, solo]() -> Player*
+    {
+        uint32 ownerGuidLow = _serverOriginFollowTargetGuidLow.load();
+        if (ownerGuidLow)
+            return _player->GetMap()->GetPlayer(ObjectGuid::Create<HighGuid::Player>(ownerGuidLow));
+        return solo ? _player : nullptr;
+    };
 
     // Called only after commands and the offensive target have been validated.
-    auto tickPriest = [this, _player, diff]()
+    auto tickPriest = [this, _player, diff, solo]()
     {
         if (_player->getClass() != CLASS_PRIEST ||
-            !(_serverOriginFollowTargetGuidLow.load() || _serverOriginRecoveryOwnerGuidLow))
+            !(_serverOriginFollowTargetGuidLow.load() || _serverOriginRecoveryOwnerGuidLow || solo))
             return;
         if (_serverOriginHealCheckTimer > diff)
             _serverOriginHealCheckTimer -= diff;
@@ -1252,11 +1270,12 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             owner->IsWithinDistInMap(target, 25.0f) && _player->IsWithinLOSInMap(target);
     };
 
-    auto beginAttack = [this, _player, &cease](Creature* target, bool autoAssisted)
+    auto beginAttack = [this, _player, &cease, solo](Creature* target, bool autoAssisted)
     {
-        bool priest = _player->getClass() == CLASS_PRIEST;
-        bool ranged = _player->getClass() == CLASS_MAGE;
-        if (priest && !PlayerbotModuleEnginePriestHealEnabled())
+        // A solo Priest damages its own target from spell range; a party Priest supports.
+        bool priest = _player->getClass() == CLASS_PRIEST && !solo;
+        bool ranged = _player->getClass() == CLASS_MAGE || (_player->getClass() == CLASS_PRIEST && solo);
+        if (_player->getClass() == CLASS_PRIEST && !PlayerbotModuleEnginePriestHealEnabled())
             return false;
         if (!priest && !ranged && _player->getClass() != CLASS_WARRIOR)
             return false;
@@ -1293,7 +1312,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             _player->GetMotionMaster()->MoveChase(target, std::nullopt, ChaseAngle(PlayerbotGroup::MeleeChaseAngle(tanking)));
         }
         TC_LOG_INFO("server", "PB-02: %s %s %s", _player->GetName().c_str(), autoAssisted ? "auto-assisting" : "attacking", target->GetName().c_str());
-        if (priest)
+        if (_player->getClass() == CLASS_PRIEST)
             PlayerbotPriest::LogKnownAbilities(*_player);
         else if (ranged)
             PlayerbotMage::LogKnownAbilities(*_player);
@@ -1354,6 +1373,40 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         }
     }
 
+    if (solo && !request && !_serverOriginAttacking.load() && _player->IsAlive() && !_player->IsBeingTeleported())
+    {
+        // Donor GrindTargetValue: defend first, then pull a fresh target when recovered.
+        Creature* target = _player->IsInCombat() ? RandomPlayerbotGrind::SelectAttacker(*_player) : nullptr;
+        if (!target && !_player->IsInCombat())
+        {
+            if (_soloSearchTimer > diff)
+                _soloSearchTimer -= diff;
+            else
+            {
+                _soloSearchTimer = RandomPlayerbotGrind::SearchIntervalMs;
+                int32 maxMana = _player->GetMaxPower(POWER_MANA);
+                bool usesMana = _player->GetPowerType() == POWER_MANA && maxMana > 0;
+                float mana = usesMana ? 100.0f * _player->GetPower(POWER_MANA) / maxMana : 100.0f;
+                if (!_soloRecovering && !_ai.GetRestSpellId() && !_ai.LootRequests().Pending() &&
+                    !_ai.LootPursuit().Active() && !_player->IsNonMeleeSpellCast(false) && !_player->IsMounted() &&
+                    RandomPlayerbotGrind::ReadyToPull(false, _player->GetHealthPct(), mana, usesMana))
+                    target = RandomPlayerbotGrind::SelectTarget(*_player);
+            }
+        }
+        if (target)
+        {
+            if (_player->GetStandState() != UNIT_STAND_STATE_STAND)
+                _player->SetStandState(UNIT_STAND_STATE_STAND);
+            if (beginAttack(target, false))
+            {
+                _soloPullStartedMs = getMSTime();
+                // Priest opener; later casts come from the healer-dps engine once engaged.
+                if (_player->getClass() == CLASS_PRIEST && _player->HasSpell(585))
+                    _player->CastSpell(target, 585);
+            }
+        }
+    }
+
     if (!_serverOriginAttacking.load())
         tickPriest();
 
@@ -1395,16 +1448,17 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
 
     if (_serverOriginAttacking.load())
     {
-        uint32 ownerGuidLow = _serverOriginFollowTargetGuidLow.load();
-        Player* owner = ownerGuidLow ? _player->GetMap()->GetPlayer(ObjectGuid::Create<HighGuid::Player>(ownerGuidLow)) : nullptr;
+        Player* owner = combatOwner();
         Creature* target = ObjectAccessor::GetCreature(*_player, _serverOriginCombatTargetGuid);
+        bool pullGrace = solo && getMSTimeDiff(_soloPullStartedMs, getMSTime()) < RandomPlayerbotGrind::PullGraceMs;
         bool ownerBeyondLeash = owner && !_player->IsWithinDistInMap(owner, 35.0f);
         bool targetBeyondLeash = target && !_player->IsWithinDistInMap(target, 35.0f);
         if (!owner || !owner->IsAlive() || !target || target->IsControlledByPlayer() || !target->IsAlive() || !_player->IsAlive() ||
             PlayerbotTargetSelection::IsProtectedTarget(*target) ||
             (_player->getClass() != CLASS_PRIEST && _player->GetVictim() != target) || !_player->IsValidAttackTarget(target) ||
             (_player->getClass() == CLASS_PRIEST && (_player->IsBeingTeleported() ||
-                !PlayerbotModuleEnginePriestHealEnabled() || !PlayerbotTargetSelection::IsEngagedWithAttachedParty(*_player, *owner, *target))) ||
+                !PlayerbotModuleEnginePriestHealEnabled() ||
+                (!pullGrace && !PlayerbotTargetSelection::IsEngagedWithAttachedParty(*_player, *owner, *target)))) ||
             (_serverOriginAutoAssistedAttack && !PlayerbotTargetSelection::IsEngagedWithAttachedParty(*_player, *owner, *target)) ||
             ownerBeyondLeash || targetBeyondLeash)
         {
@@ -1534,4 +1588,109 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         else
             PlayerbotWarrior::Execute(*_player, *target);
     }
+}
+
+bool PlayerbotSessionBehavior::IsSoloGrinder(Player const& bot) const
+{
+    return PlayerbotModuleRandomGrindEnabled() && RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()) &&
+        !_serverOriginFollowTargetGuidLow.load() && !_serverOriginPartyControllerGuidLow.load() &&
+        !_serverOriginRecoveryOwnerGuidLow && !bot.GetGroup() && !_ai.IsStaying();
+}
+
+void PlayerbotSessionBehavior::UpdateSoloController()
+{
+    Player* bot = _ai.GetBot();
+    if (!bot)
+    {
+        _soloActive = false;
+        return;
+    }
+    bool solo = IsSoloGrinder(*bot);
+    if (solo)
+    {
+        _ai.SetController(bot->GetGUID());
+        if (!_soloHomeSet || _soloHomeMap != bot->GetMapId())
+        {
+            _soloHome = bot->GetPosition();
+            _soloHomeMap = bot->GetMapId();
+            _soloHomeSet = true;
+        }
+    }
+    else if (_soloActive.load())
+    {
+        // A human took over (invite or follow); hand control back to the party path.
+        if (_ai.GetController() == bot)
+            _ai.ClearController();
+        _soloRecovering = false;
+        _soloDeadMs = 0;
+    }
+    _soloActive = solo;
+}
+
+void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
+{
+    Player* bot = _ai.GetBot();
+    if (!bot || !_soloActive.load() || bot->IsBeingTeleported())
+        return;
+
+    if (!bot->IsAlive())
+    {
+        // No spirit healer walk yet: revive in place after a short delay.
+        _soloDeadMs += diff;
+        if (_soloDeadMs < RandomPlayerbotGrind::ReviveDelayMs)
+            return;
+        _soloDeadMs = 0;
+        bot->ResurrectPlayer(0.5f);
+        bot->SpawnCorpseBones();
+        _soloRecovering = true;
+        _soloWanderTimer = RandomPlayerbotGrind::WanderDelayMs(frand(0.0f, 1.0f));
+        TC_LOG_INFO("module.playerbots", "PB-RANDOM: %s revived in place", bot->GetName().c_str());
+        return;
+    }
+    _soloDeadMs = 0;
+
+    if (_serverOriginAttacking.load() || bot->IsInCombat() || _ai.GetRestSpellId() ||
+        _ai.LootRequests().Pending() || _ai.LootPursuit().Active() || bot->IsNonMeleeSpellCast(false) ||
+        bot->IsMounted() || bot->IsInFlight())
+        return;
+
+    int32 maximum = bot->GetMaxPower(POWER_MANA);
+    bool usesMana = bot->GetPowerType() == POWER_MANA && maximum > 0;
+    float mana = usesMana ? 100.0f * bot->GetPower(POWER_MANA) / maximum : 100.0f;
+    if (!RandomPlayerbotGrind::ReadyToPull(_soloRecovering, bot->GetHealthPct(), mana, usesMana))
+    {
+        if (!_soloRecovering && !bot->isMoving())
+        {
+            _soloRecovering = true;
+            if (bot->GetStandState() == UNIT_STAND_STATE_STAND)
+                bot->SetStandState(UNIT_STAND_STATE_SIT);
+        }
+        return;
+    }
+    if (_soloRecovering)
+    {
+        _soloRecovering = false;
+        if (bot->GetStandState() == UNIT_STAND_STATE_SIT)
+            bot->SetStandState(UNIT_STAND_STATE_STAND);
+    }
+
+    if (_soloWanderTimer > diff)
+    {
+        _soloWanderTimer -= diff;
+        return;
+    }
+    _soloWanderTimer = RandomPlayerbotGrind::WanderDelayMs(frand(0.0f, 1.0f));
+    if (!PlayerbotCombatMovement::CanMove(*bot) || bot->isMoving() || !_soloHomeSet)
+        return;
+
+    Position destination;
+    if (!bot->IsWithinDist2d(&_soloHome, RandomPlayerbotGrind::HomeLeash))
+        destination = _soloHome;
+    else
+    {
+        float x, y, z;
+        bot->GetRandomPoint(_soloHome, RandomPlayerbotGrind::WanderRadius, x, y, z);
+        destination.Relocate(x, y, z);
+    }
+    bot->GetMotionMaster()->MovePoint(0, destination, true);
 }

@@ -11,11 +11,14 @@
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "../../Script/PlayerbotConfig.h"
 #include "ObjectMgr.h"
 #include "Random.h"
 #include "World.h"
 #include "WorldSession.h"
 #include <memory>
+#include <shared_mutex>
+#include <unordered_set>
 #include <vector>
 
 namespace
@@ -44,6 +47,16 @@ namespace
     uint32 LastOnline = 0;
     uint32 LastProvisioning = 0;
 
+    // Read from map threads (solo behavior), written on the world thread.
+    std::shared_mutex RandomAccountsLock;
+    std::unordered_set<uint32> RandomAccounts;
+
+    void RegisterRandomAccount(uint32 accountId)
+    {
+        std::unique_lock lock(RandomAccountsLock);
+        RandomAccounts.insert(accountId);
+    }
+
     uint32 Roll(uint32 bound) { return bound ? urand(0, bound - 1) : 0; }
 
     std::string RollPassword()
@@ -58,7 +71,10 @@ namespace
     bool ResolveAccount(RandomBotSlot& slot, std::string const& name, uint32& createdThisInterval)
     {
         if ((slot.AccountId = sAccountMgr->GetId(name)))
+        {
+            RegisterRandomAccount(slot.AccountId);
             return true;
+        }
         if (createdThisInterval >= AccountsPerInterval)
             return false;
         ++createdThisInterval;
@@ -69,6 +85,8 @@ namespace
             return false;
         }
         slot.AccountId = sAccountMgr->GetId(name);
+        if (slot.AccountId)
+            RegisterRandomAccount(slot.AccountId);
         return slot.AccountId != 0;
     }
 
@@ -245,5 +263,12 @@ std::string RandomPlayerbotMgr::Describe()
     return "Random playerbots " + state + ": target " + std::to_string(Settings.Count) +
         ", accounts " + std::to_string(accounts) + ", characters " + std::to_string(characters) +
         ", creating " + std::to_string(LastProvisioning) + ", online " + std::to_string(LastOnline) +
-        ", with failures " + std::to_string(failing) + ".";
+        ", with failures " + std::to_string(failing) +
+        ", grinding " + (PlayerbotModuleRandomGrindEnabled() ? "on" : "off") + ".";
+}
+
+bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)
+{
+    std::shared_lock lock(RandomAccountsLock);
+    return RandomAccounts.count(accountId) != 0;
 }
