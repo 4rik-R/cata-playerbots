@@ -227,9 +227,9 @@ void BuildSupplyIndex()
                 break;
             uint32 category = PlayerbotRest::ItemCategory(effect.Category, spell->GetCategory());
             uint32 level = uint32(std::max(proto.GetRequiredLevel(), 1));
-            if (category == SPELL_CATEGORY_FOOD && spell->HasAura(SPELL_AURA_MOD_REGEN))
+            if (category == SPELL_CATEGORY_FOOD && (spell->HasAura(SPELL_AURA_MOD_REGEN) || spell->HasAura(SPELL_AURA_OBS_MOD_HEALTH)))
                 Foods.push_back({ level, entry });
-            else if (category == SPELL_CATEGORY_DRINK && spell->HasAura(SPELL_AURA_MOD_POWER_REGEN))
+            else if (category == SPELL_CATEGORY_DRINK && (spell->HasAura(SPELL_AURA_MOD_POWER_REGEN) || spell->HasAura(SPELL_AURA_OBS_MOD_POWER)))
                 Drinks.push_back({ level, entry });
             break;
         }
@@ -379,7 +379,7 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
 {
     std::vector<SlotRule> rules = {
         { EQUIPMENT_SLOT_HEAD, { INVTYPE_HEAD }, {} },
-        { EQUIPMENT_SLOT_NECK, { INVTYPE_NECK }, { ITEM_SUBCLASS_ARMOR_MISC } },
+        { EQUIPMENT_SLOT_NECK, { INVTYPE_NECK }, { ITEM_SUBCLASS_ARMOR_MISCELLANEOUS } },
         { EQUIPMENT_SLOT_SHOULDERS, { INVTYPE_SHOULDERS }, {} },
         { EQUIPMENT_SLOT_CHEST, { INVTYPE_CHEST, INVTYPE_ROBE }, {} },
         { EQUIPMENT_SLOT_WAIST, { INVTYPE_WAIST }, {} },
@@ -387,8 +387,8 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
         { EQUIPMENT_SLOT_FEET, { INVTYPE_FEET }, {} },
         { EQUIPMENT_SLOT_WRISTS, { INVTYPE_WRISTS }, {} },
         { EQUIPMENT_SLOT_HANDS, { INVTYPE_HANDS }, {} },
-        { EQUIPMENT_SLOT_FINGER1, { INVTYPE_FINGER }, { ITEM_SUBCLASS_ARMOR_MISC } },
-        { EQUIPMENT_SLOT_FINGER2, { INVTYPE_FINGER }, { ITEM_SUBCLASS_ARMOR_MISC } },
+        { EQUIPMENT_SLOT_FINGER1, { INVTYPE_FINGER }, { ITEM_SUBCLASS_ARMOR_MISCELLANEOUS } },
+        { EQUIPMENT_SLOT_FINGER2, { INVTYPE_FINGER }, { ITEM_SUBCLASS_ARMOR_MISCELLANEOUS } },
         { EQUIPMENT_SLOT_BACK, { INVTYPE_CLOAK }, { ITEM_SUBCLASS_ARMOR_CLOTH } },
     };
     if (role == Role::Tank)
