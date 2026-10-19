@@ -75,7 +75,7 @@ public:
             bot->GetMotionMaster()->MoveChase(target, std::nullopt,
                 ChaseAngle(PlayerbotGroup::MeleeChaseAngle(
                     UsesFrontPosition(target->GetVictim() == bot, PlayerbotRoles::IsTank(*bot)))));
-        TC_LOG_INFO("server", "PB-MOVE: %s requested %s toward %s", bot->GetName().c_str(), name.c_str(), target->GetName().c_str());
+        TC_LOG_INFO("module.playerbots", "PB-MOVE: %s requested %s toward %s", bot->GetName().c_str(), name.c_str(), target->GetName().c_str());
         return true; // Chase submission is not confirmed arrival.
     }
 private:

@@ -49,7 +49,7 @@ bool TryCastChecked(Player& bot, Unit& target, std::uint32_t spellId, char const
     std::string targetName = target.GetName();
     if (spell->prepare(targets) == SPELL_CAST_OK)
     {
-        TC_LOG_INFO("server", "PB-02: %s began %s on %s", bot.GetName().c_str(), name, targetName.c_str());
+        TC_LOG_INFO("module.playerbots", "PB-02: %s began %s on %s", bot.GetName().c_str(), name, targetName.c_str());
         return true;
     }
     return false;

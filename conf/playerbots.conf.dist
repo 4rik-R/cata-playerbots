@@ -356,3 +356,20 @@ Playerbots.Random.AllianceRatio = 50
 #                     1 - (Enabled)
 
 Playerbots.Random.Grind.Enabled = 0
+
+#    Playerbots.Random.Level.Enabled
+#        Description: Random bots get a stable target level between Min and Max.
+#                     A fresh bot (below level 6) is raised to it with its class
+#                     trainer spells, talents of a fixed spec, green gear (blue at
+#                     85), bags, food/water, riding at 20 and some gold, then sent to
+#                     a grind spot in a levelling zone of its faction. Bots keep
+#                     levelling while grinding and move on when their zone no
+#                     longer fits. Requires Playerbots.Random.Enabled.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+#
+#    Playerbots.Random.Level.Min / Max   Level range, 1-85. Default 1 and 85.
+
+Playerbots.Random.Level.Enabled = 0
+Playerbots.Random.Level.Min = 1
+Playerbots.Random.Level.Max = 85

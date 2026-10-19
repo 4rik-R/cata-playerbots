@@ -160,12 +160,12 @@ void Process(Player& bot)
             bot.StoreItem(stored, chest, true);
             ready = !bot.GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_CHEST) &&
                 bot.GetItemByGuid(preserved) == chest && ready;
-            TC_LOG_INFO("server", "PB-FIXTURE: %s controlled roll chest empty; existing item 2866 preserved", bot.GetName().c_str());
+            TC_LOG_INFO("module.playerbots", "PB-FIXTURE: %s controlled roll chest empty; existing item 2866 preserved", bot.GetName().c_str());
         }
     }
     ready = Carry(bot, 3770, 20) && ready;
     bot.SaveToDB();
-    TC_LOG_INFO("server", "PB-FIXTURE: %s %s; primary tree %u; free points %u; native save requested",
+    TC_LOG_INFO("module.playerbots", "PB-FIXTURE: %s %s; primary tree %u; free points %u; native save requested",
         bot.GetName().c_str(), ready ? "prepared" : "incomplete", tree, bot.GetFreeTalentPoints());
 }
 }

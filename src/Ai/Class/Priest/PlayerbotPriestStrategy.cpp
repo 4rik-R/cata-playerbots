@@ -23,7 +23,7 @@
 
 void PlayerbotPriest::LogKnownAbilities(Player const& bot)
 {
-    TC_LOG_INFO("server", "PB-HEAL: Priest level=%u Shield=%u Flash Heal=%u Heal=%u Renew=%u",
+    TC_LOG_INFO("module.playerbots", "PB-HEAL: Priest level=%u Shield=%u Flash Heal=%u Heal=%u Renew=%u",
         bot.getLevel(), bot.HasSpell(17), bot.HasSpell(2061), bot.HasSpell(2050), bot.HasSpell(139));
 }
 
