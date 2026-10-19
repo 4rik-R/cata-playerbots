@@ -5,6 +5,7 @@
  */
 #include "PlayerbotClassRotation.h"
 #include "../../Base/PlayerbotCombatDecision.h"
+#include "CharmInfo.h"
 #include "Creature.h"
 #include "Log.h"
 #include "Pet.h"
@@ -17,7 +18,7 @@ namespace
 {
 using namespace PlayerbotClassRotation;
 
-float PowerPct(Player const& bot, Powers power)
+float PowerPct(Player const& bot, PowerType power)
 {
     int32 max = bot.GetMaxPower(power);
     return max > 0 ? 100.0f * bot.GetPower(power) / max : 100.0f;

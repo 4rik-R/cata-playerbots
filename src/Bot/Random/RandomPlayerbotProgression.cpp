@@ -437,7 +437,7 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
     {
         // Two one-handers; the off hand only fits once Dual Wield is trained at 10.
         std::set<uint32> oneHanders = { ITEM_SUBCLASS_WEAPON_DAGGER, ITEM_SUBCLASS_WEAPON_SWORD,
-            ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_FIST };
+            ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_FIST_WEAPON };
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONMAINHAND }, oneHanders });
         rules.push_back({ EQUIPMENT_SLOT_OFFHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONOFFHAND }, oneHanders });
     }
