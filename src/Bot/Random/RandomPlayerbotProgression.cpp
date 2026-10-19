@@ -239,19 +239,50 @@ void BuildSupplyIndex()
     std::sort(Drinks.begin(), Drinks.end(), order);
 }
 
+uint8 ClassOfFamily(uint32 family)
+{
+    switch (family)
+    {
+        case SPELLFAMILY_MAGE: return CLASS_MAGE;
+        case SPELLFAMILY_WARRIOR: return CLASS_WARRIOR;
+        case SPELLFAMILY_WARLOCK: return CLASS_WARLOCK;
+        case SPELLFAMILY_PRIEST: return CLASS_PRIEST;
+        case SPELLFAMILY_DRUID: return CLASS_DRUID;
+        case SPELLFAMILY_ROGUE: return CLASS_ROGUE;
+        case SPELLFAMILY_HUNTER: return CLASS_HUNTER;
+        case SPELLFAMILY_PALADIN: return CLASS_PALADIN;
+        case SPELLFAMILY_SHAMAN: return CLASS_SHAMAN;
+        case SPELLFAMILY_DEATHKNIGHT: return CLASS_DEATH_KNIGHT;
+        default: return 0;
+    }
+}
+
+// Class trainers carry no class in `trainer` (Requirement is 0), so each
+// taught spell is assigned to the class of its spell family.
 void BuildTrainerIndex()
 {
     QueryResult result = WorldDatabase.Query(
-        "SELECT t.Requirement, ts.SpellId, ts.ReqLevel FROM trainer t JOIN trainer_spell ts ON ts.TrainerId = t.Id WHERE t.Type = 0");
+        "SELECT ts.SpellId, ts.ReqLevel FROM trainer t JOIN trainer_spell ts ON ts.TrainerId = t.Id WHERE t.Type = 0");
     if (!result)
         return;
     std::map<uint8, std::map<uint32, uint8>> lowest;
     do
     {
         Field* fields = result->Fetch();
-        uint8 playerClass = uint8(fields[0].GetUInt32());
-        uint32 spell = fields[1].GetUInt32();
-        uint8 level = fields[2].GetUInt8();
+        uint32 spell = fields[0].GetUInt32();
+        uint8 level = fields[1].GetUInt8();
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+        if (!info)
+            continue;
+        uint32 family = info->SpellFamilyName;
+        if (!family && info->HasEffect(SPELL_EFFECT_LEARN_SPELL))
+            for (SpellEffectInfo const& effect : info->Effects)
+                if (effect.Effect == SPELL_EFFECT_LEARN_SPELL)
+                    if (SpellInfo const* taught = sSpellMgr->GetSpellInfo(effect.TriggerSpell))
+                        family = taught->SpellFamilyName;
+        uint8 playerClass = ClassOfFamily(family);
+        if (!playerClass)
+            continue;
         auto [it, inserted] = lowest[playerClass].emplace(spell, level);
         if (!inserted)
             it->second = std::min(it->second, level);
