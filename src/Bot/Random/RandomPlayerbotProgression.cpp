@@ -5,6 +5,7 @@
  * See AUTHORS.md and PORTING.md. Released under GNU GPL v2 or any later version.
  */
 #include "RandomPlayerbotProgression.h"
+#include "../../Ai/Class/Rotation/PlayerbotClassRotation.h"
 #include "RandomPlayerbotLevels.h"
 #include "../../Ai/Base/PlayerbotRestItem.h"
 #include "Bag.h"
@@ -61,7 +62,8 @@ struct Supply { uint32 RequiredLevel; uint32 Entry; };
 std::vector<Supply> Foods, Drinks;
 uint32 BagEntry = 0;
 
-enum class Role { Melee, Tank, Caster, Healer };
+// Agile: leather and mail damage dealers that live on agility (rogue, hunter).
+enum class Role { Melee, Tank, Caster, Healer, Agile };
 
 uint8 TeamOf(Player const& bot) { return bot.GetTeamId() == TEAM_ALLIANCE ? Alliance : Horde; }
 
@@ -89,6 +91,8 @@ Role RoleOf(Player const& bot)
     {
         case CLASS_WARRIOR: return tab == 2 ? Role::Tank : Role::Melee;
         case CLASS_PRIEST: return Role::Healer;
+        case CLASS_ROGUE:
+        case CLASS_HUNTER: return Role::Agile;
         default: return Role::Caster;
     }
 }
@@ -96,16 +100,17 @@ Role RoleOf(Player const& bot)
 float StatWeight(Role role, uint32 stat)
 {
     bool caster = role == Role::Caster || role == Role::Healer;
+    bool agile = role == Role::Agile;
     switch (stat)
     {
         case ITEM_MOD_STAMINA: return role == Role::Tank ? 3.0f : 1.0f;
-        case ITEM_MOD_STRENGTH: return caster ? -10.0f : 3.0f;
-        case ITEM_MOD_AGILITY: return caster ? -10.0f : (role == Role::Tank ? 0.5f : -10.0f);
+        case ITEM_MOD_STRENGTH: return caster || agile ? -10.0f : 3.0f;
+        case ITEM_MOD_AGILITY: return agile ? 3.0f : caster ? -10.0f : (role == Role::Tank ? 0.5f : -10.0f);
         case ITEM_MOD_INTELLECT: return caster ? 3.0f : -10.0f;
         case ITEM_MOD_SPIRIT: return role == Role::Healer ? 2.0f : (caster ? 1.0f : -10.0f);
         case ITEM_MOD_SPELL_POWER: return caster ? 2.5f : -10.0f;
         case ITEM_MOD_DODGE_RATING:
-        case ITEM_MOD_PARRY_RATING: return role == Role::Tank ? 1.5f : (caster ? -10.0f : 0.2f);
+        case ITEM_MOD_PARRY_RATING: return role == Role::Tank ? 1.5f : (caster ? -10.0f : agile ? 0.0f : 0.2f);
         case ITEM_MOD_ATTACK_POWER:
         case ITEM_MOD_EXPERTISE_RATING: return caster ? -10.0f : 1.0f;
         case ITEM_MOD_HIT_RATING:
@@ -428,13 +433,24 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
             { ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_SWORD } });
         rules.push_back({ EQUIPMENT_SLOT_OFFHAND, { INVTYPE_SHIELD }, { ITEM_SUBCLASS_ARMOR_SHIELD } });
     }
-    else if (role == Role::Melee)
+    else if (bot.getClass() == CLASS_ROGUE)
+    {
+        // Two one-handers; the off hand only fits once Dual Wield is trained at 10.
+        std::set<uint32> oneHanders = { ITEM_SUBCLASS_WEAPON_DAGGER, ITEM_SUBCLASS_WEAPON_SWORD,
+            ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_FIST };
+        rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONMAINHAND }, oneHanders });
+        rules.push_back({ EQUIPMENT_SLOT_OFFHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONOFFHAND }, oneHanders });
+    }
+    else if (role == Role::Melee || role == Role::Agile)
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON },
             { ITEM_SUBCLASS_WEAPON_AXE2, ITEM_SUBCLASS_WEAPON_MACE2, ITEM_SUBCLASS_WEAPON_SWORD2, ITEM_SUBCLASS_WEAPON_POLEARM } });
     else
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON }, { ITEM_SUBCLASS_WEAPON_STAFF } });
     if (bot.getClass() == CLASS_MAGE || bot.getClass() == CLASS_PRIEST || bot.getClass() == CLASS_WARLOCK)
         rules.push_back({ EQUIPMENT_SLOT_RANGED, { INVTYPE_RANGEDRIGHT }, { ITEM_SUBCLASS_WEAPON_WAND } });
+    else if (bot.getClass() == CLASS_HUNTER)
+        rules.push_back({ EQUIPMENT_SLOT_RANGED, { INVTYPE_RANGED, INVTYPE_RANGEDRIGHT },
+            { ITEM_SUBCLASS_WEAPON_BOW, ITEM_SUBCLASS_WEAPON_GUN, ITEM_SUBCLASS_WEAPON_CROSSBOW } });
     else if (bot.getClass() == CLASS_WARRIOR || bot.getClass() == CLASS_ROGUE)
         rules.push_back({ EQUIPMENT_SLOT_RANGED, { INVTYPE_THROWN, INVTYPE_RANGED, INVTYPE_RANGEDRIGHT },
             { ITEM_SUBCLASS_WEAPON_THROWN, ITEM_SUBCLASS_WEAPON_BOW, ITEM_SUBCLASS_WEAPON_GUN, ITEM_SUBCLASS_WEAPON_CROSSBOW } });
@@ -579,6 +595,7 @@ void RandomPlayerbotProgression::BuildIndexes()
     BuildGearIndex();
     BuildSupplyIndex();
     BuildTrainerIndex();
+    PlayerbotClassRotation::ValidateSpells();
     IndexesReady = true;
     size_t gear = 0;
     for (auto const& [type, list] : GearByInventoryType)

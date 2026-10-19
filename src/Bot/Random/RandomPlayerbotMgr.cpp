@@ -129,7 +129,7 @@ namespace
 
         for (uint32 attempt = 0; attempt < MaxNameAttempts; ++attempt)
         {
-            RandomPlayerbotProfile profile = RollRandomPlayerbotProfile(Settings.AllianceRatio, Roll);
+            RandomPlayerbotProfile profile = RollRandomPlayerbotProfile(Settings.AllianceRatio, Roll, Settings.ClassMask);
             std::string failure;
             auto appearance = RandomPlayerbotFactory::PreviewAppearance(profile.Race, profile.Class, profile.Gender, failure);
             if (!appearance)

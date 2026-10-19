@@ -36,6 +36,8 @@
 #include "PlayerbotPriestStrategy.h"
 #include "../Script/PlayerbotConfig.h"
 #include "PlayerbotWarriorStrategy.h"
+#include "PlayerbotClassRotation.h"
+#include "RotationAiObjectContext.h"
 #include "World.h"
 #include "Random.h"
 #include "Random/RandomPlayerbotMgr.h"
@@ -65,7 +67,8 @@ std::unique_ptr<PlayerbotSessionHooks> CreatePlayerbotSessionHooks(WorldSession&
 }
 bool PlayerbotModuleSupportsClass(uint8 playerClass)
 {
-    return playerClass == CLASS_WARRIOR || playerClass == CLASS_MAGE || playerClass == CLASS_PRIEST;
+    return playerClass == CLASS_WARRIOR || playerClass == CLASS_MAGE || playerClass == CLASS_PRIEST ||
+        PlayerbotClassRotation::Supports(playerClass);
 }
 PlayerbotContextState PlayerbotSessionBehavior::GetContextStateForMap() const
 {
@@ -131,6 +134,13 @@ void PlayerbotSessionBehavior::UpdateMap(uint32 diff)
                 _engine->AddStrategy("heal");
                 _engine->AddStrategy("nc");
                 _engine->AddStrategy("buff");
+            }
+            else if (PlayerbotClassRotation::Supports(bot->getClass()))
+            {
+                _aiContext = std::make_unique<RotationAiObjectContext>(&_ai);
+                _stateEngines = std::make_unique<StateEngines>(&_ai, *_aiContext);
+                _engine = &_stateEngines->Active();
+                _engine->AddStrategy("nc");
             }
 
     if (_stateEngines && (!_traceObserversInstalled || _actionHistory.Enabled() != PlayerbotModuleActionHistoryEnabled()))
@@ -1277,10 +1287,12 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
     {
         // A solo Priest damages its own target from spell range; a party Priest supports.
         bool priest = _player->getClass() == CLASS_PRIEST && !solo;
-        bool ranged = _player->getClass() == CLASS_MAGE || (_player->getClass() == CLASS_PRIEST && solo);
+        bool rotation = PlayerbotClassRotation::Supports(_player->getClass());
+        bool ranged = _player->getClass() == CLASS_MAGE || (_player->getClass() == CLASS_PRIEST && solo) ||
+            (rotation && PlayerbotClassRotation::IsRanged(_player->getClass()));
         if (_player->getClass() == CLASS_PRIEST && !PlayerbotModuleEnginePriestHealEnabled())
             return false;
-        if (!priest && !ranged && _player->getClass() != CLASS_WARRIOR)
+        if (!priest && !ranged && _player->getClass() != CLASS_WARRIOR && !rotation)
             return false;
         cease();
         // Donor AttackAction faces before native attack/chase submission.
@@ -1317,6 +1329,8 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         TC_LOG_INFO("module.playerbots", "PB-02: %s %s %s", _player->GetName().c_str(), autoAssisted ? "auto-assisting" : "attacking", target->GetName().c_str());
         if (_player->getClass() == CLASS_PRIEST)
             PlayerbotPriest::LogKnownAbilities(*_player);
+        else if (rotation)
+            PlayerbotClassRotation::LogKnownAbilities(*_player);
         else if (ranged)
             PlayerbotMage::LogKnownAbilities(*_player);
         else
@@ -1546,6 +1560,15 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             }
         }
 
+        bool rotation = PlayerbotClassRotation::Supports(_player->getClass());
+        if (rotation && PlayerbotClassRotation::IsRanged(_player->getClass()))
+        {
+            // Rogues, hunters and warlocks cast from their class table; potions stay in the engine.
+            if (!PlayerbotClassRotation::Execute(*_player, *target) && _engine)
+                TickEngine(true);
+            return;
+        }
+
         if (_player->getClass() == CLASS_MAGE)
         {
             if (_ai.NeedsSpellChaseRefresh() && PlayerbotCombatMovement::RefreshSpellChase(_ai))
@@ -1575,6 +1598,13 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         {
             _player->GetMotionMaster()->MoveChase(target, std::nullopt, ChaseAngle(PlayerbotGroup::MeleeChaseAngle(tanking)));
             _serverOriginMeleeStance = stance;
+        }
+
+        if (rotation)
+        {
+            if (!PlayerbotClassRotation::Execute(*_player, *target) && _engine)
+                TickEngine(true);
+            return;
         }
 
         if (_engine && PlayerbotModuleEngineWarriorCombatEnabled())

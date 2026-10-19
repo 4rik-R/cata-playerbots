@@ -160,6 +160,7 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
     randomSettings.LoginPerInterval = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.LoginPerInterval", 10)));
     randomSettings.IntervalMs = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.IntervalSeconds", 20))) * 1000;
     randomSettings.AllianceRatio = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Random.AllianceRatio", 50)));
+    randomSettings.ClassMask = ParseRandomPlayerbotClasses(sConfigMgr->GetStringDefault("Playerbots.Random.Classes", ""));
     RandomPlayerbotMgr::Configure(randomSettings);
     RandomGrindEnabled.store(randomSettings.Enabled && sConfigMgr->GetBoolDefault("Playerbots.Random.Grind.Enabled", false),
         std::memory_order_relaxed);

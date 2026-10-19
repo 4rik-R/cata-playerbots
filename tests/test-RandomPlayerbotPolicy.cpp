@@ -5,6 +5,7 @@
 #include "../src/Bot/Random/RandomPlayerbotPolicy.h"
 #include <catch2/catch.hpp>
 #include <random>
+#include <algorithm>
 #include <set>
 
 namespace
@@ -62,16 +63,20 @@ TEST_CASE("Random population profiles use supported classes and unphased races",
     std::set<uint8_t> alliance(RandomPlayerbotAllianceRaces.begin(), RandomPlayerbotAllianceRaces.end());
     std::set<uint8_t> horde(RandomPlayerbotHordeRaces.begin(), RandomPlayerbotHordeRaces.end());
     uint32_t allianceCount = 0;
+    std::set<uint8_t> classes;
     for (int i = 0; i < 2000; ++i)
     {
         auto profile = RollRandomPlayerbotProfile(50, SeededRoll{&engine});
-        REQUIRE((profile.Class == 1 || profile.Class == 5 || profile.Class == 8));
+        REQUIRE(std::find(RandomPlayerbotClasses.begin(), RandomPlayerbotClasses.end(), profile.Class) !=
+            RandomPlayerbotClasses.end());
+        classes.insert(profile.Class);
         REQUIRE(profile.Gender <= 1);
         REQUIRE(profile.Race != 9);
         REQUIRE(profile.Race != 22);
         REQUIRE((alliance.count(profile.Race) || horde.count(profile.Race)));
         allianceCount += alliance.count(profile.Race) ? 1 : 0;
     }
+    REQUIRE(classes.size() == RandomPlayerbotClasses.size());
     REQUIRE(allianceCount > 800);
     REQUIRE(allianceCount < 1200);
     REQUIRE(horde.count(RollRandomPlayerbotProfile(0, SeededRoll{&engine}).Race));
@@ -93,4 +98,19 @@ TEST_CASE("Random population names are short capitalized letters", "[playerbots]
         distinct.insert(name);
     }
     REQUIRE(distinct.size() > 300);
+}
+
+TEST_CASE("Random population class list parses ids and limits the roll", "[playerbots][random]")
+{
+    REQUIRE(ParseRandomPlayerbotClasses("") == 0);
+    REQUIRE(ParseRandomPlayerbotClasses("4, 3,9") == ((1u << 3) | (1u << 2) | (1u << 8)));
+    // Paladin (2) has no combat AI yet; 99 is no class.
+    REQUIRE(ParseRandomPlayerbotClasses("2,99") == 0);
+    REQUIRE(RandomPlayerbotClassEnabled(0, 4));
+    std::mt19937 engine(3);
+    uint32_t mask = ParseRandomPlayerbotClasses("4,9");
+    std::set<uint8_t> seen;
+    for (int i = 0; i < 500; ++i)
+        seen.insert(RollRandomPlayerbotProfile(50, SeededRoll{&engine}, mask).Class);
+    REQUIRE(seen == std::set<uint8_t>{4, 9});
 }

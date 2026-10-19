@@ -338,12 +338,16 @@ Playerbots.Random.Enabled = 0
 #    Playerbots.Random.LoginPerInterval  Admissions per interval (1-100). Default 10.
 #    Playerbots.Random.IntervalSeconds   Manager pass interval (1-600). Default 20.
 #    Playerbots.Random.AllianceRatio     Percent of new characters that are Alliance. Default 50.
+#    Playerbots.Random.Classes           Class ids new characters may roll, comma separated:
+#                                        1 Warrior, 3 Hunter, 4 Rogue, 5 Priest, 8 Mage, 9 Warlock.
+#                                        Empty: all of them. Existing characters keep their class.
 
 Playerbots.Random.Count = 50
 Playerbots.Random.AccountPrefix = "RNDBOT"
 Playerbots.Random.LoginPerInterval = 10
 Playerbots.Random.IntervalSeconds = 20
 Playerbots.Random.AllianceRatio = 50
+Playerbots.Random.Classes = ""
 
 #    Playerbots.Random.Grind.Enabled
 #        Description: Ungrouped random bots act on their own: wander near their
