@@ -16,6 +16,7 @@
 #include "DBCStores.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Item.h"
 #include "Log.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
@@ -119,8 +120,8 @@ uint8 TeamsOf(CreatureTemplate const& info)
     FactionTemplateEntry const* faction = sFactionTemplateStore.LookupEntry(info.faction);
     if (!alliance || !horde || !faction)
         return 0;
-    return (faction->IsHostileTo(*alliance) ? 0 : RandomPlayerbotLevels::Alliance) |
-        (faction->IsHostileTo(*horde) ? 0 : RandomPlayerbotLevels::Horde);
+    return (faction->IsHostileTo(alliance) ? 0 : RandomPlayerbotLevels::Alliance) |
+        (faction->IsHostileTo(horde) ? 0 : RandomPlayerbotLevels::Horde);
 }
 
 uint32 QuestLevelFor(Quest const& quest, uint32 level)
