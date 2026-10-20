@@ -14,6 +14,7 @@
 #include "DatabaseEnv.h"
 #include "Log.h"
 #include "../../Script/PlayerbotConfig.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Random.h"
 #include "World.h"
@@ -363,18 +364,21 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
 
 std::string RandomPlayerbotMgr::Describe()
 {
-    uint32 accounts = 0, characters = 0, failing = 0;
+    uint32 accounts = 0, characters = 0, failing = 0, phased = 0;
     for (RandomBotSlot const& slot : Slots)
     {
         accounts += slot.AccountId ? 1 : 0;
         characters += slot.GuidLow ? 1 : 0;
         failing += slot.Failures ? 1 : 0;
+        if (slot.GuidLow)
+            if (Player* bot = ObjectAccessor::FindPlayerByLowGUID(slot.GuidLow))
+                phased += RandomPlayerbotProgression::InPhasedStart(*bot) ? 1 : 0;
     }
     std::string state = !Settings.Enabled ? "disabled" : ResetPending ? "resetting" : Paused ? "paused" : "running";
     return "Random playerbots " + state + ": target " + std::to_string(Settings.Count) +
         ", accounts " + std::to_string(accounts) + ", characters " + std::to_string(characters) +
         ", creating " + std::to_string(LastProvisioning) + ", online " + std::to_string(LastOnline) +
-        ", with failures " + std::to_string(failing) +
+        ", with failures " + std::to_string(failing) + ", in start areas " + std::to_string(phased) +
         ", grinding " + (PlayerbotModuleRandomGrindEnabled() ? "on" : "off") +
         ", levels " + (RandomPlayerbotProgression::GetSettings().Enabled ?
             std::to_string(RandomPlayerbotProgression::GetSettings().MinLevel) + "-" +
