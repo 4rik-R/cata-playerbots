@@ -73,7 +73,8 @@ uint32 Hash(uint32 value)
     return value ^ (value >> 16);
 }
 
-// Stable spec per character: warriors and mages pick any tree, priests heal.
+// Stable spec per character: most classes pick any tree, priests heal.
+// Hybrids (paladin, shaman, druid) heal in one tree of three.
 uint8 TalentTab(Player const& bot)
 {
     uint32 roll = Hash(bot.GetGUID().GetCounter() + 7);
@@ -91,6 +92,10 @@ Role RoleOf(Player const& bot)
     {
         case CLASS_WARRIOR: return tab == 2 ? Role::Tank : Role::Melee;
         case CLASS_PRIEST: return Role::Healer;
+        // Tab order is the talent tree order of TalentTab.dbc.
+        case CLASS_PALADIN: return tab == 0 ? Role::Healer : tab == 1 ? Role::Tank : Role::Melee;
+        case CLASS_SHAMAN: return tab == 0 ? Role::Caster : tab == 1 ? Role::Agile : Role::Healer;
+        case CLASS_DRUID: return tab == 0 ? Role::Caster : tab == 1 ? Role::Agile : Role::Healer;
         case CLASS_ROGUE:
         case CLASS_HUNTER: return Role::Agile;
         default: return Role::Caster;
@@ -411,6 +416,19 @@ uint32 ArmorSubclass(Player const& bot)
     }
 }
 
+// Two-handed weapon types each melee class can train.
+std::set<uint32> TwoHanders(uint8 playerClass)
+{
+    switch (playerClass)
+    {
+        case CLASS_SHAMAN: return { ITEM_SUBCLASS_WEAPON_AXE2, ITEM_SUBCLASS_WEAPON_MACE2, ITEM_SUBCLASS_WEAPON_STAFF };
+        case CLASS_DRUID: return { ITEM_SUBCLASS_WEAPON_STAFF, ITEM_SUBCLASS_WEAPON_POLEARM, ITEM_SUBCLASS_WEAPON_MACE2 };
+        default:
+            return { ITEM_SUBCLASS_WEAPON_AXE2, ITEM_SUBCLASS_WEAPON_MACE2, ITEM_SUBCLASS_WEAPON_SWORD2,
+                ITEM_SUBCLASS_WEAPON_POLEARM };
+    }
+}
+
 std::vector<SlotRule> SlotRules(Player const& bot, Role role)
 {
     std::vector<SlotRule> rules = {
@@ -441,9 +459,23 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONMAINHAND }, oneHanders });
         rules.push_back({ EQUIPMENT_SLOT_OFFHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONOFFHAND }, oneHanders });
     }
+    else if ((role == Role::Healer || role == Role::Caster) &&
+        (bot.getClass() == CLASS_PALADIN || bot.getClass() == CLASS_SHAMAN))
+    {
+        // Holy paladins and caster shamans: one-hander and shield.
+        std::set<uint32> oneHanders = { ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_AXE };
+        if (bot.getClass() == CLASS_PALADIN)
+            oneHanders.insert(ITEM_SUBCLASS_WEAPON_SWORD);
+        else
+        {
+            oneHanders.insert(ITEM_SUBCLASS_WEAPON_DAGGER);
+            oneHanders.insert(ITEM_SUBCLASS_WEAPON_FIST_WEAPON);
+        }
+        rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONMAINHAND }, oneHanders });
+        rules.push_back({ EQUIPMENT_SLOT_OFFHAND, { INVTYPE_SHIELD }, { ITEM_SUBCLASS_ARMOR_SHIELD } });
+    }
     else if (role == Role::Melee || role == Role::Agile)
-        rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON },
-            { ITEM_SUBCLASS_WEAPON_AXE2, ITEM_SUBCLASS_WEAPON_MACE2, ITEM_SUBCLASS_WEAPON_SWORD2, ITEM_SUBCLASS_WEAPON_POLEARM } });
+        rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON }, TwoHanders(bot.getClass()) });
     else
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON }, { ITEM_SUBCLASS_WEAPON_STAFF } });
     if (bot.getClass() == CLASS_MAGE || bot.getClass() == CLASS_PRIEST || bot.getClass() == CLASS_WARLOCK)

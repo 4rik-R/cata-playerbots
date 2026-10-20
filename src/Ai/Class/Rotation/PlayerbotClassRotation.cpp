@@ -1,6 +1,6 @@
 /*
- * Table-driven combat for rogues, hunters and warlocks, adapted from the
- * generic DPS strategies of mod-playerbots at d750b4b. See AUTHORS.md and
+ * Table-driven combat for rogues, hunters, warlocks, paladins, shamans and
+ * druids, adapted from the generic strategies of mod-playerbots at d750b4b. See AUTHORS.md and
  * PORTING.md. Released under GNU GPL v2 or any later version.
  */
 #include "PlayerbotClassRotation.h"
@@ -8,11 +8,16 @@
 #include "CharmInfo.h"
 #include "Creature.h"
 #include "Log.h"
+#include "Map.h"
 #include "Pet.h"
 #include "PetAI.h"
 #include "Player.h"
+#include "Item.h"
 #include "Spell.h"
+#include "SpellAuraEffects.h"
+#include "SpellHistory.h"
 #include "SpellMgr.h"
+#include "TemporarySummon.h"
 
 namespace
 {
@@ -22,6 +27,33 @@ float PowerPct(Player const& bot, PowerType power)
 {
     int32 max = bot.GetMaxPower(power);
     return max > 0 ? 100.0f * bot.GetPower(power) / max : 100.0f;
+}
+
+uint32 Tree(Player const& bot) { return bot.GetPrimaryTalentTree(bot.GetActiveSpec()); }
+
+std::span<Step const> Combat(Player const& bot)
+{
+    return CombatSteps(bot.getClass(), Tree(bot), bot.HasSpell(DruidCatForm));
+}
+
+// Any member of the step's exclusive group already worn counts as present.
+bool SelfAuraPresent(Player const& bot, uint32 aura)
+{
+    std::span<uint32_t const> group = ExclusiveGroup(aura);
+    if (group.empty())
+        return bot.HasAura(aura);
+    for (uint32 member : group)
+        if (bot.HasAura(member))
+            return true;
+    return false;
+}
+
+// The bot's own fire totem, still close enough to reach the target.
+bool FireTotemNear(Player const& bot, Creature const* target)
+{
+    ObjectGuid guid = bot.m_SummonSlot[SUMMON_SLOT_TOTEM_FIRE];
+    Creature* totem = guid.IsEmpty() || !bot.IsInWorld() ? nullptr : bot.GetMap()->GetCreature(guid);
+    return totem && totem->IsAlive() && (!target || totem->IsWithinDistInMap(target, 20.0f));
 }
 
 Pet* LivePet(Player const& bot)
@@ -41,13 +73,7 @@ bool Ready(Player& bot, Creature* target, Step const& step, bool inCombat)
         case When::MyDotMissing:
             return target && DotWorthCasting(target->HasAura(aura, bot.GetGUID()), target->GetHealthPct());
         case When::AnyAuraMissing: return target && !target->HasAura(aura);
-        case When::SelfAuraMissing:
-            if (step.SpellId == WarlockArmors[1] && bot.HasSpell(WarlockArmors[0]))
-                return false; // Fel Armor replaces Demon Armor.
-            for (uint32 armor : WarlockArmors)
-                if (aura == armor)
-                    return !bot.HasAura(WarlockArmors[0]) && !bot.HasAura(WarlockArmors[1]);
-            return !bot.HasAura(aura);
+        case When::SelfAuraMissing: return !SelfAuraPresent(bot, aura);
         case When::ComboFinisher:
             return target && bot.GetComboTarget() == target->GetGUID() &&
                 FinisherReady(bot.GetComboPoints(), target->GetHealthPct());
@@ -72,6 +98,14 @@ bool Ready(Player& bot, Creature* target, Step const& step, bool inCombat)
             Pet* pet = LivePet(bot);
             return pet && target && pet->GetVictim() == target && pet->IsWithinMeleeRange(target);
         }
+        case When::SelfBelow20: return bot.GetHealthPct() < 20.0f;
+        case When::SelfHotMissing: return SelfHotReady(bot.GetHealthPct(), bot.HasAura(aura, bot.GetGUID()));
+        case When::HolyPower3: return bot.GetPower(POWER_HOLY_POWER) >= 3;
+        case When::TargetNotOnMe: return target && target->GetVictim() && target->GetVictim() != &bot;
+        case When::FireTotemMissing: return target && inCombat && !FireTotemNear(bot, target);
+        case When::ComboFinisherDot:
+            return target && bot.GetComboTarget() == target->GetGUID() &&
+                BleedFinisherReady(bot.GetComboPoints(), target->GetHealthPct(), target->HasAura(aura, bot.GetGUID()));
     }
     return false;
 }
@@ -80,7 +114,7 @@ bool Run(Player& bot, Creature* target, std::span<Step const> steps, bool inComb
 {
     for (Step const& step : steps)
     {
-        if (!bot.HasSpell(step.SpellId) || !Ready(bot, target, step, inCombat))
+        if (!bot.HasSpell(step.SpellId) || (step.Over && bot.HasSpell(step.Over)) || !Ready(bot, target, step, inCombat))
             continue;
         Unit* castTarget = step.On == Target::Self ? static_cast<Unit*>(&bot) :
             step.On == Target::Pet ? static_cast<Unit*>(LivePet(bot)) : static_cast<Unit*>(target);
@@ -114,6 +148,41 @@ void SendPet(Player& bot, Creature& target)
         pet->AI()->AttackStart(&target);
 }
 
+// Shaman weapon imbue on the main hand; enhancement prefers Windfury.
+uint32 WantedImbue(Player const& bot)
+{
+    if (bot.getClass() != ClassShaman)
+        return 0;
+    Item* weapon = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    if (!weapon || weapon->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT))
+        return 0;
+    if (Tree(bot) == TreeShamanEnhancement && bot.HasSpell(ShamanWindfury))
+        return ShamanWindfury;
+    return bot.HasSpell(ShamanFlametongue) ? ShamanFlametongue : 0;
+}
+
+// Imbues target an item, so the unit-target TryCast does not fit.
+bool ApplyImbue(Player& bot, uint32 spellId)
+{
+    Item* weapon = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!weapon || !info || bot.GetSpellHistory()->HasGlobalCooldown(info) || bot.GetSpellHistory()->HasCooldown(info))
+        return false;
+    Spell* spell = new Spell(&bot, info, TRIGGERED_NONE);
+    SpellCastTargets targets;
+    targets.SetItemTarget(weapon);
+    if (spell->prepare(targets) != SPELL_CAST_OK)
+        return false;
+    TC_LOG_INFO("module.playerbots", "PB-02: %s began weapon imbue %u", bot.GetName().c_str(), spellId);
+    return true;
+}
+
+// Druids leave cat and moonkin form after combat so they can eat, drink and mount.
+bool InCombatForm(Player const& bot)
+{
+    return bot.getClass() == ClassDruid && bot.HasAuraType(SPELL_AURA_MOD_SHAPESHIFT);
+}
+
 bool NeedsPet(Player const& bot)
 {
     return HasPet(bot.getClass()) && !bot.GetPet() && !bot.IsMounted() &&
@@ -136,7 +205,7 @@ bool PlayerbotClassRotation::Execute(Player& bot, Creature& target)
     if (!Supports(bot.getClass()) || !bot.IsAlive() || bot.IsNonMeleeSpellCast(false))
         return false;
     SendPet(bot, target);
-    if (IsRanged(bot.getClass()) && !bot.IsWithinLOSInMap(&target))
+    if (FightsAtRange(bot) && !bot.IsWithinLOSInMap(&target))
         return false;
     if (!bot.HasInArc(2.0f * float(M_PI) / 3.0f, &target))
         bot.SetFacingToObject(&target);
@@ -144,7 +213,12 @@ bool PlayerbotClassRotation::Execute(Player& bot, Creature& target)
     if (bot.getClass() == ClassHunter && target.IsWithinMeleeRange(&bot) && bot.GetVictim() == &target &&
         !bot.HasUnitState(UNIT_STATE_MELEE_ATTACKING))
         bot.Attack(&target, true);
-    return Run(bot, &target, CombatSteps(bot.getClass()), true);
+    return Run(bot, &target, Combat(bot), true);
+}
+
+bool PlayerbotClassRotation::FightsAtRange(Player const& bot)
+{
+    return IsRanged(bot.getClass(), Tree(bot), bot.HasSpell(DruidCatForm));
 }
 
 bool PlayerbotClassRotation::NeedsUpkeep(Player& bot)
@@ -152,10 +226,10 @@ bool PlayerbotClassRotation::NeedsUpkeep(Player& bot)
     if (!Supports(bot.getClass()) || !bot.IsAlive() || bot.IsInCombat() || bot.IsMounted() ||
         bot.IsNonMeleeSpellCast(false))
         return false;
-    if (NeedsPet(bot))
+    if (NeedsPet(bot) || WantedImbue(bot) || InCombatForm(bot))
         return true;
-    for (Step const& step : UpkeepSteps(bot.getClass()))
-        if (bot.HasSpell(step.SpellId) && Ready(bot, nullptr, step, false))
+    for (Step const& step : UpkeepSteps(bot.getClass(), Tree(bot)))
+        if (bot.HasSpell(step.SpellId) && !(step.Over && bot.HasSpell(step.Over)) && Ready(bot, nullptr, step, false))
             return true;
     return false;
 }
@@ -164,15 +238,23 @@ bool PlayerbotClassRotation::Upkeep(Player& bot)
 {
     if (!NeedsUpkeep(bot))
         return false;
+    if (InCombatForm(bot))
+    {
+        bot.RemoveAurasByType(SPELL_AURA_MOD_SHAPESHIFT);
+        return true;
+    }
     if (NeedsPet(bot) && SummonPet(bot))
         return true;
-    return Run(bot, nullptr, UpkeepSteps(bot.getClass()), false);
+    if (uint32 imbue = WantedImbue(bot))
+        if (ApplyImbue(bot, imbue))
+            return true;
+    return Run(bot, nullptr, UpkeepSteps(bot.getClass(), Tree(bot)), false);
 }
 
 void PlayerbotClassRotation::LogKnownAbilities(Player const& bot)
 {
     std::string known;
-    for (Step const& step : CombatSteps(bot.getClass()))
+    for (Step const& step : Combat(bot))
         if (bot.HasSpell(step.SpellId))
             known += std::string(known.empty() ? "" : ", ") + step.Name;
     TC_LOG_DEBUG("module.playerbots", "PB-02: %s level=%u class=%u known: %s pet=%u", bot.GetName().c_str(),
@@ -190,14 +272,21 @@ void PlayerbotClassRotation::ValidateSpells()
             ++missing;
         }
     };
-    for (uint8 playerClass : { ClassRogue, ClassHunter, ClassWarlock })
+    struct Spec { uint8 Class; uint32 Tree; bool CatForm; };
+    for (Spec spec : std::initializer_list<Spec>{ { ClassRogue, 0, false }, { ClassHunter, 0, false },
+        { ClassWarlock, 0, false }, { ClassPaladin, TreePaladinHoly, false },
+        { ClassPaladin, TreePaladinProtection, false }, { ClassPaladin, TreePaladinRetribution, false },
+        { ClassShaman, TreeShamanElemental, false }, { ClassShaman, TreeShamanEnhancement, false },
+        { ClassShaman, TreeShamanRestoration, false }, { ClassDruid, TreeDruidBalance, false },
+        { ClassDruid, TreeDruidFeral, true } })
     {
-        for (Step const& step : CombatSteps(playerClass))
+        for (Step const& step : CombatSteps(spec.Class, spec.Tree, spec.CatForm))
             check(step.SpellId, step.Name);
-        for (Step const& step : UpkeepSteps(playerClass))
+        for (Step const& step : UpkeepSteps(spec.Class, spec.Tree))
             check(step.SpellId, step.Name);
     }
-    for (uint32 spellId : { HunterCallPet, HunterRevivePet, WarlockVoidwalker, WarlockImp })
-        check(spellId, "pet summon");
+    for (uint32 spellId : { HunterCallPet, HunterRevivePet, WarlockVoidwalker, WarlockImp, ShamanWindfury,
+        ShamanFlametongue })
+        check(spellId, "pet summon or imbue");
     TC_LOG_INFO("module.playerbots", "PB-ROTATION: class tables checked, %u spell(s) missing", missing);
 }

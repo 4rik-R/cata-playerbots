@@ -15,6 +15,7 @@
 #include "PlayerbotCombatDecision.h"
 #include "PlayerbotPartyBuffStrategy.h"
 #include "PlayerbotTargetSelection.h"
+#include "PlayerbotHealerKit.h"
 #include "PlayerbotHealingMana.h"
 #include "PlayerbotRoles.h"
 #include "../../../Script/PlayerbotConfig.h"
@@ -37,7 +38,7 @@ bool PlayerbotPriest::MaintainBuff(Player& bot, Player& owner)
 
 std::vector<Player*> PlayerbotPriest::HealCandidates(Player& bot, Player* owner)
 {
-    return bot.getClass() == CLASS_PRIEST ? PlayerbotPartySupport::Candidates(bot, owner) : std::vector<Player*>{};
+    return PlayerbotHealerKit::Has(bot.getClass()) ? PlayerbotPartySupport::Candidates(bot, owner) : std::vector<Player*>{};
 }
 
 namespace
@@ -110,7 +111,8 @@ bool PlayerbotPriest::ManaAllowsHealing(Player const& bot, Player const& target,
 Player* PlayerbotPriest::ResurrectionTarget(Player& bot, float range, Player* owner, bool nearOwner)
 {
     if (!bot.IsInWorld() || !bot.IsAlive() || bot.IsBeingTeleported() || bot.IsInCombat() ||
-        bot.IsNonMeleeSpellCast(false) || !bot.HasSpell(2006) || !std::isfinite(range) || range < 2.0f || range > 40.0f)
+        bot.IsNonMeleeSpellCast(false) || !bot.HasSpell(PlayerbotHealerKit::For(bot.getClass()).Resurrect) ||
+        !std::isfinite(range) || range < 2.0f || range > 40.0f)
         return nullptr;
     Group* group = bot.GetGroup();
     if (!group) return nullptr;
@@ -146,12 +148,22 @@ ObjectGuid PlayerbotPriest::ResurrectionReachTarget(Player& bot, Player& owner, 
         target->GetGUID() : ObjectGuid::Empty;
 }
 
+bool PlayerbotPriest::KnowsHealingSpell(Player const& bot)
+{
+    PlayerbotHealerKit::Kit kit = PlayerbotHealerKit::For(bot.getClass());
+    for (std::uint32_t spell : kit.Emergency)
+        if (spell && bot.HasSpell(spell)) return true;
+    for (std::uint32_t spell : kit.Heal)
+        if (spell && bot.HasSpell(spell)) return true;
+    return kit.Hot && bot.HasSpell(kit.Hot);
+}
+
 ObjectGuid PlayerbotPriest::HealingReachTarget(Player& bot, Player& owner, float range)
 {
     Group* group = bot.GetGroup();
     if (!group || owner.GetGroup() != group || !bot.IsAlive() || !owner.IsAlive() ||
         bot.GetMap() != owner.GetMap() || !bot.IsWithinDistInMap(&owner, 35.0f) ||
-        !(bot.HasSpell(2050) || bot.HasSpell(2061) || bot.HasSpell(139)))
+        !KnowsHealingSpell(bot))
         return ObjectGuid::Empty;
     // Do not abandon an injured member already in native healing range.
     for (Player* member : HealCandidates(bot, &owner))

@@ -9,6 +9,7 @@
 
 #include "catch2/catch.hpp"
 #include "../src/Ai/Class/Priest/PlayerbotPriestStrategy.h"
+#include "../src/Ai/Base/PlayerbotHealerKit.h"
 #include "../src/Ai/Base/PlayerbotHealingMana.h"
 #include <limits>
 #include <memory>
@@ -280,4 +281,34 @@ TEST_CASE("Playerbot healing safely handles an empty party candidate list", "[Pl
         [](float pct) { return pct; },
         [&](float) { ++attempts; return true; }));
     REQUIRE(attempts == 0);
+}
+
+TEST_CASE("Healer kits cover every healing class", "[playerbots][healing]")
+{
+    using namespace PlayerbotHealerKit;
+    for (std::uint8_t playerClass : { ClassPaladin, ClassPriest, ClassShaman, ClassDruid })
+    {
+        INFO("class " << int(playerClass));
+        Kit kit = For(playerClass);
+        REQUIRE(Has(playerClass));
+        REQUIRE(kit.Emergency[0] != 0);
+        REQUIRE(kit.Heal[0] != 0);
+        REQUIRE(kit.Resurrect != 0);
+    }
+    REQUIRE_FALSE(Has(1));
+    REQUIRE_FALSE(Has(9));
+    REQUIRE(IsHybrid(ClassPaladin));
+    REQUIRE_FALSE(IsHybrid(ClassPriest));
+    REQUIRE(TierForHealth(50.0f) == Tier::Emergency);
+    REQUIRE(TierForHealth(70.0f) == Tier::Heal);
+    REQUIRE(TierForHealth(85.0f) == Tier::Hot);
+    REQUIRE(TierForHealth(95.0f) == Tier::None);
+}
+
+TEST_CASE("Healer mana rules follow the priest spell of the same job", "[playerbots][healing]")
+{
+    using namespace PlayerbotHealingMana;
+    REQUIRE(ForJob(Job::Emergency).Amount == ForPriestSpell(2061).Amount);
+    REQUIRE(ForJob(Job::Heal).Mana == ForPriestSpell(2050).Mana);
+    REQUIRE(ForJob(Job::Hot).Mana == Efficiency::VeryHigh);
 }

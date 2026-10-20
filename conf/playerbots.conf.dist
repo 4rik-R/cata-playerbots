@@ -339,7 +339,8 @@ Playerbots.Random.Enabled = 0
 #    Playerbots.Random.IntervalSeconds   Manager pass interval (1-600). Default 20.
 #    Playerbots.Random.AllianceRatio     Percent of new characters that are Alliance. Default 50.
 #    Playerbots.Random.Classes           Class ids new characters may roll, comma separated:
-#                                        1 Warrior, 3 Hunter, 4 Rogue, 5 Priest, 8 Mage, 9 Warlock.
+#                                        1 Warrior, 2 Paladin, 3 Hunter, 4 Rogue, 5 Priest, 7 Shaman,
+#                                        8 Mage, 9 Warlock, 11 Druid.
 #                                        Empty: all of them. Existing characters keep their class.
 
 Playerbots.Random.Count = 50
