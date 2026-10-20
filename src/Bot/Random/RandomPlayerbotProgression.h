@@ -10,6 +10,7 @@
 #include <cstdint>
 
 class Player;
+namespace RandomPlayerbotQuests { struct BotState; }
 
 // World-thread only: callers run inside the session's world update, while map
 // threads are idle. Terrain lookups (zone of a spawn point) are not thread-safe.
@@ -34,8 +35,9 @@ void Initialize(Player& bot, uint32_t level);
 void ApplyLevelUp(Player& bot, uint32_t previousLevel);
 // True when the bot stands in a levelling zone that suits its level and faction.
 bool InFittingZone(Player& bot);
-// Starts a teleport to a fitting grind spot; false when none was found.
-bool Relocate(Player& bot);
+// Sends the bot to a fitting quest hub (on a journey when a quest state is given) or
+// teleports it to a fitting grind spot; false when none was found.
+bool Relocate(Player& bot, RandomPlayerbotQuests::BotState* journey = nullptr);
 // Death knights, Worgen and Goblins are created in Acherus, Gilneas or Kezan.
 bool InPhasedStart(Player const& bot);
 // Binds the bot in Stormwind or Orgrimmar and starts the teleport there.

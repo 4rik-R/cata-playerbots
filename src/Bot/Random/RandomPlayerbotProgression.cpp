@@ -731,12 +731,12 @@ bool RandomPlayerbotProgression::InFittingZone(Player& bot)
     return ZoneFits(bot.GetZoneId(), bot.getLevel(), TeamOf(bot));
 }
 
-bool RandomPlayerbotProgression::Relocate(Player& bot)
+bool RandomPlayerbotProgression::Relocate(Player& bot, RandomPlayerbotQuests::BotState* journey)
 {
     if (!IndexesReady || SpawnsByLevel.empty())
         return false;
     // Questing bots start next to a quest giver of a fitting zone.
-    if (RandomPlayerbotQuests::RelocateToGiver(bot))
+    if (RandomPlayerbotQuests::RelocateToGiver(bot, journey))
         return true;
     uint8 team = TeamOf(bot);
     FactionTemplateEntry const* own = sFactionTemplateStore.LookupEntry(team == Alliance ? AllianceFactionTemplate : HordeFactionTemplate);

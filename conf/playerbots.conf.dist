@@ -398,8 +398,14 @@ Playerbots.Random.Level.Max = 85
 #                     Talk-to and delivery quests count when the recipient
 #                     stands in the giver's zone, so bots follow quest chains.
 #                     Bots with nothing left to do, or too high for their
-#                     zone, move to a quest hub of a fitting zone. The status
-#                     line counts bots questing, travelling and grinding.
+#                     zone, move to a quest hub of a fitting zone on the same
+#                     continent on a journey: they ride to a flight master and
+#                     fly when that saves riding, else ride all the way. A
+#                     journey stuck four times or longer than 20 minutes ends
+#                     by teleport, as does a move to another continent.
+#                     The status line counts bots questing, travelling,
+#                     grinding and on journeys, journeys, flights, failed
+#                     journeys and teleports.
 #                     Requires Playerbots.Random.Grind.Enabled and
 #                     Playerbots.Random.Level.Enabled.
 #        Default:     0 - (Disabled)

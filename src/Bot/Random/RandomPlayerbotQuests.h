@@ -29,6 +29,27 @@ enum class Activity : uint8_t
     Questing,   // working on quests at a spot, a giver or an object
     Travelling, // on the way to a quest spot or turn-in
     Grinding,   // nothing to quest here: fighting what is around
+    Flying,     // on a journey to another quest hub: riding to a flight master, flying or riding on
+};
+
+// A move to another quest hub: by flight when that saves riding, else on the mount.
+struct Journey
+{
+    enum class Leg : uint8_t
+    {
+        None,
+        ToMaster, // riding to the flight master
+        Flying,
+        ToGoal,   // riding to the quest giver
+    };
+    Leg Stage = Leg::None;
+    uint32_t Map = 0;
+    Position Master;
+    Position Goal;
+    std::vector<uint32_t> Nodes;
+    uint32_t Cost = 0;
+    uint32_t StartedMs = 0;
+    uint32_t Stalls = 0;
 };
 
 // Per bot, owned by its session behavior on the map thread (WantsRelocation is read by the world thread).
@@ -61,9 +82,12 @@ struct BotState
     uint32_t IdleSinceMs = 0;
     std::atomic<bool> WantsRelocation { false };
     Activity Doing = Activity::None;
+    Journey Trip;
+    std::atomic<bool> TripFailed { false }; // set on the map thread, finished by teleport on the world thread
 
     ~BotState();
     void ClearSpot() { HasSpot = false; SpotArrivedMs = 0; TravelCheckMs = 0; }
+    bool Journeying() const { return Trip.Stage != Journey::Leg::None; }
 };
 
 void Configure(bool enabled);
@@ -81,8 +105,11 @@ bool Update(WorldSession& session, Player& bot, BotState& state, Position& home,
 void Dismount(Player& bot, BotState& state);
 // Map thread. Nearest creature in QuestTargetRange that counts for an open quest.
 Creature* SelectQuestTarget(Player& bot);
-// World thread. Teleports the bot next to a quest giver with quests for it.
-bool RelocateToGiver(Player& bot);
+// World thread. Sends the bot to a quest giver with quests for it: on a journey when a state
+// is given and the giver is on the same continent, else by teleport.
+bool RelocateToGiver(Player& bot, BotState* state = nullptr);
+// World thread. Teleports a bot whose journey failed to its goal.
+bool FinishFailedTrip(Player& bot, BotState& state);
 std::string Describe();
 }
 

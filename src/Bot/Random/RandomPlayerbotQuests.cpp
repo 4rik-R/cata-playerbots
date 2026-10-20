@@ -10,6 +10,7 @@
 #include "RandomPlayerbotLevels.h"
 #include "RandomPlayerbotProgression.h"
 #include "RandomPlayerbotQuestPolicy.h"
+#include "RandomPlayerbotTravelPolicy.h"
 #include "CellImpl.h"
 #include "Creature.h"
 #include "GameObject.h"
@@ -41,6 +42,7 @@
 #include <vector>
 
 using namespace RandomPlayerbotQuestPolicy;
+using namespace RandomPlayerbotTravelPolicy;
 
 namespace
 {
@@ -89,7 +91,19 @@ std::unordered_map<uint32, std::vector<uint32>> OpenSpells;
 std::vector<Giver> Givers;
 std::vector<std::vector<uint32>> GiversByLevel; // level -> index into Givers
 uint32 VerdictCounts[5] = {};
-std::atomic<uint32> ActivityCounts[4] = {};
+std::atomic<uint32> ActivityCounts[5] = {};
+
+// Flight masters in the open world and the taxi node each serves.
+struct Master
+{
+    Point Pos;
+    uint32 Node;
+    uint8 Teams;
+};
+std::vector<Master> Masters;
+// Taxi network legs each faction can fly, index 0 Alliance, 1 Horde.
+TaxiLegs TaxiNetwork[2];
+std::atomic<uint32> TripCount { 0 }, FlightCount { 0 }, TeleportCount { 0 }, FailedTripCount { 0 };
 
 void SetActivity(RandomPlayerbotQuests::BotState& state, RandomPlayerbotQuests::Activity activity)
 {
@@ -838,6 +852,145 @@ bool Travel(Player& bot, RandomPlayerbotQuests::BotState& state, Position& home,
     return true;
 }
 
+bool TaxiNodeServes(TaxiNodesEntry const& node, uint8 team)
+{
+    // As ObjectMgr::GetNearestTaxiNode: a node without a mount for the faction is not theirs.
+    uint32 index = node.ID - 1;
+    return (sTaxiNodesMask[index / 8] & (1 << (index % 8))) &&
+        node.MountCreatureID[team == RandomPlayerbotLevels::Alliance ? 1 : 0] != 0;
+}
+
+Master const* NearestMaster(uint32 map, float x, float y, uint8 team)
+{
+    Master const* best = nullptr;
+    float bestDistance = 0.0f;
+    for (Master const& master : Masters)
+    {
+        if (master.Pos.Map != map || !(master.Teams & team))
+            continue;
+        float distance = std::hypot(master.Pos.X - x, master.Pos.Y - y);
+        if (!best || distance < bestDistance)
+        {
+            best = &master;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+// Plans the way to a goal on the bot's map: false when only a teleport gets it there.
+bool PlanJourney(Player& bot, RandomPlayerbotQuests::BotState& state, uint32 map, Position const& goal)
+{
+    if (bot.GetMapId() != map || !OpenWorld(map) || bot.IsInFlight() || bot.GetTransport())
+        return false;
+    RandomPlayerbotQuests::Journey trip;
+    trip.Map = map;
+    trip.Goal = goal;
+    float direct = bot.GetExactDist2d(goal.GetPositionX(), goal.GetPositionY());
+    uint8 team = TeamOf(bot);
+    Master const* from = NearestMaster(map, bot.GetPositionX(), bot.GetPositionY(), team);
+    Master const* to = NearestMaster(map, goal.GetPositionX(), goal.GetPositionY(), team);
+    if (from && to && from->Node != to->Node)
+    {
+        float toMaster = bot.GetExactDist2d(from->Pos.X, from->Pos.Y);
+        float fromLanding = std::hypot(to->Pos.X - goal.GetPositionX(), to->Pos.Y - goal.GetPositionY());
+        Route route = FindRoute(TaxiNetwork[team == RandomPlayerbotLevels::Alliance ? 0 : 1], from->Node, to->Node);
+        if (!route.Nodes.empty() && WorthFlying(direct, toMaster, fromLanding))
+        {
+            trip.Stage = RandomPlayerbotQuests::Journey::Leg::ToMaster;
+            trip.Master.Relocate(from->Pos.X, from->Pos.Y, from->Pos.Z);
+            trip.Nodes = std::move(route.Nodes);
+            trip.Cost = route.Cost;
+        }
+    }
+    if (trip.Stage == RandomPlayerbotQuests::Journey::Leg::None)
+    {
+        if (direct > MaxRideRange)
+            return false;
+        trip.Stage = RandomPlayerbotQuests::Journey::Leg::ToGoal;
+    }
+    state.Trip = std::move(trip);
+    state.TripFailed = false;
+    state.Giver.Clear();
+    state.Object.Clear();
+    state.ClearSpot();
+    ++TripCount;
+    TC_LOG_DEBUG("module.playerbots", "PB-TRAVEL: %s sets out %s over %.0f yards", bot.GetName().c_str(),
+        state.Trip.Nodes.empty() ? "riding" : "by flight", direct);
+    return true;
+}
+
+void FailJourney(Player& bot, RandomPlayerbotQuests::BotState& state, char const* reason)
+{
+    RandomPlayerbotQuests::Dismount(bot, state);
+    bot.StopMoving();
+    state.ClearSpot();
+    state.TripFailed = true;
+    TC_LOG_DEBUG("module.playerbots", "PB-TRAVEL: %s gives its journey up: %s", bot.GetName().c_str(), reason);
+}
+
+// Rides to the flight master, flies and rides on to the goal; true while under way.
+bool UpdateJourney(Player& bot, RandomPlayerbotQuests::BotState& state, Position& home, uint32 now)
+{
+    using Leg = RandomPlayerbotQuests::Journey::Leg;
+    RandomPlayerbotQuests::Journey& trip = state.Trip;
+    if (state.TripFailed)
+        return true;
+    if (!trip.StartedMs)
+        trip.StartedMs = now ? now : 1;
+    if (bot.GetMapId() != trip.Map || getMSTimeDiff(trip.StartedMs, now) > JourneyTimeoutMs)
+    {
+        FailJourney(bot, state, "too long");
+        return true;
+    }
+    SetActivity(state, RandomPlayerbotQuests::Activity::Flying);
+    if (trip.Stage == Leg::Flying)
+    {
+        if (bot.IsInFlight())
+            return true;
+        trip.Stage = Leg::ToGoal;
+        state.ClearSpot();
+    }
+    Position const& target = trip.Stage == Leg::ToMaster ? trip.Master : trip.Goal;
+    if (!state.HasSpot)
+    {
+        state.HasSpot = true;
+        state.Spot = target;
+        state.SpotArrivedMs = 0;
+        state.TravelCheckMs = 0;
+    }
+    if (Travel(bot, state, home, now))
+        return true;
+    if (!state.HasSpot)
+    {
+        // Stuck behind something: try again a few times, the path may lead around it.
+        state.TriedSpots.clear();
+        if (++trip.Stalls >= MaxJourneyStalls)
+            FailJourney(bot, state, "stuck");
+        return true;
+    }
+    state.ClearSpot();
+    if (trip.Stage == Leg::ToGoal)
+    {
+        state.Trip = {};
+        state.IdleSinceMs = 0;
+        home = bot.GetPosition();
+        return false;
+    }
+    if (bot.GetMoney() < trip.Cost)
+        bot.ModifyMoney(int64(trip.Cost - bot.GetMoney()));
+    if (bot.IsMounted())
+        bot.RemoveAurasByType(SPELL_AURA_MOUNTED);
+    if (!bot.ActivateTaxiPathTo(trip.Nodes))
+    {
+        FailJourney(bot, state, "no flight");
+        return true;
+    }
+    ++FlightCount;
+    trip.Stage = Leg::Flying;
+    return true;
+}
+
 // Frees log slots before accepting new quests.
 void TidyLog(WorldSession& session, Player& bot, RandomPlayerbotQuests::BotState& state)
 {
@@ -1168,6 +1321,43 @@ void RandomPlayerbotQuests::BuildIndex()
         giver.HubSize = std::max<uint32>(near, 1);
     }
 
+    // Flight masters and the taxi network of each faction.
+    for (auto const& [spawnId, data] : sObjectMgr->GetAllCreatureData())
+    {
+        CreatureTemplate const* info = sObjectMgr->GetCreatureTemplate(data.id);
+        if (!info || !(info->npcflag & UNIT_NPC_FLAG_FLIGHTMASTER) || !OpenWorld(data.mapId) ||
+            !(data.phaseId == 0 || data.phaseId == DEFAULT_PHASE) || data.phaseGroup || data.terrainSwapMap != -1)
+            continue;
+        uint8 teams = TeamsOf(*info);
+        float x = data.spawnPoint.GetPositionX(), y = data.spawnPoint.GetPositionY(), z = data.spawnPoint.GetPositionZ();
+        for (uint8 team : { uint8(RandomPlayerbotLevels::Alliance), uint8(RandomPlayerbotLevels::Horde) })
+        {
+            if (!(teams & team))
+                continue;
+            uint32 node = sObjectMgr->GetNearestTaxiNode(x, y, z, data.mapId,
+                team == RandomPlayerbotLevels::Alliance ? ALLIANCE : HORDE);
+            TaxiNodesEntry const* entry = node ? sTaxiNodesStore.LookupEntry(node) : nullptr;
+            if (entry && std::hypot(entry->Pos.X - x, entry->Pos.Y - y) <= MasterNodeRange)
+                Masters.push_back({ { uint16(data.mapId), 0, x, y, z, data.spawnPoint.GetOrientation() }, node, team });
+        }
+    }
+    for (auto const& [from, targets] : sTaxiPathSetBySource)
+    {
+        TaxiNodesEntry const* source = sTaxiNodesStore.LookupEntry(from);
+        if (!source)
+            continue;
+        for (auto const& [to, path] : targets)
+        {
+            TaxiNodesEntry const* target = sTaxiNodesStore.LookupEntry(to);
+            if (!target || target->ContinentID != source->ContinentID)
+                continue;
+            float length = std::hypot(target->Pos.X - source->Pos.X, target->Pos.Y - source->Pos.Y);
+            for (uint8 team : { uint8(RandomPlayerbotLevels::Alliance), uint8(RandomPlayerbotLevels::Horde) })
+                if (TaxiNodeServes(*source, team) && TaxiNodeServes(*target, team))
+                    TaxiNetwork[team == RandomPlayerbotLevels::Alliance ? 0 : 1][from].push_back({ to, length, path.price });
+        }
+    }
+
     uint32 withPoi = 0;
     for (uint32 id : BotQuests)
         if (QuestPOIData const* poi = sObjectMgr->GetQuestPOIData(int32(id)); poi && !poi->Blobs.empty())
@@ -1177,10 +1367,11 @@ void RandomPlayerbotQuests::BuildIndex()
     uint32 const* counts = VerdictCounts;
     TC_LOG_INFO("module.playerbots", "Random playerbots: %u quests for bots (of %u simple; skipped %u unavailable, "
         "%u scripted, %u unspawned object, %u talk-to of which %u in reach) at %u givers, %u with quest-map "
-        "markers, %u quest objects, in %u ms.",
+        "markers, %u quest objects, %u flight masters, in %u ms.",
         uint32(BotQuests.size()), counts[uint8(Verdict::Supported)], counts[uint8(Verdict::Unavailable)],
         counts[uint8(Verdict::Scripted)], counts[uint8(Verdict::GameObject)], counts[uint8(Verdict::NoObjective)],
-        DeliveryCount, uint32(Givers.size()), withPoi, uint32(ObjectSpawns.size()), getMSTimeDiff(started, getMSTime()));
+        DeliveryCount, uint32(Givers.size()), withPoi, uint32(ObjectSpawns.size()), uint32(Masters.size()),
+        getMSTimeDiff(started, getMSTime()));
 }
 
 Creature* RandomPlayerbotQuests::SelectQuestTarget(Player& bot)
@@ -1230,8 +1421,11 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
     if (state.Riding && !bot.IsMounted() && !bot.IsNonMeleeSpellCast(false))
         state.Riding = false;
     if (!Ready() || int32(state.NextScanMs - now) > 0)
-        return !state.Giver.IsEmpty() || !state.Object.IsEmpty() || (state.HasSpot && !state.SpotArrivedMs);
+        return !state.Giver.IsEmpty() || !state.Object.IsEmpty() || (state.HasSpot && !state.SpotArrivedMs) ||
+            state.Journeying();
     state.NextScanMs = now + ScanIntervalMs;
+    if (state.Journeying())
+        return UpdateJourney(bot, state, home, now);
     if (!state.LastProgressMs)
         state.LastProgressMs = now ? now : 1;
     bool open = TrackProgress(session, bot, state, now);
@@ -1346,7 +1540,7 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
     return travelling;
 }
 
-bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
+bool RandomPlayerbotQuests::RelocateToGiver(Player& bot, BotState* state)
 {
     if (!Ready())
         return false;
@@ -1376,10 +1570,26 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
         return false;
     // A few steps in front of the giver, facing it.
     float x = best->Pos.X + 4.0f * std::cos(best->Pos.O), y = best->Pos.Y + 4.0f * std::sin(best->Pos.O);
+    if (state && PlanJourney(bot, *state, best->Pos.Map, Position(x, y, best->Pos.Z, best->Pos.O + float(M_PI))))
+        return true;
     if (!bot.TeleportTo(best->Pos.Map, x, y, best->Pos.Z + 0.5f, best->Pos.O + float(M_PI)))
         return false;
+    ++TeleportCount;
     TC_LOG_DEBUG("module.playerbots", "PB-QUEST: %s level %u sent to a quest hub of %u givers in zone %u",
         bot.GetName().c_str(), level, best->HubSize, uint32(best->Pos.Zone));
+    return true;
+}
+
+bool RandomPlayerbotQuests::FinishFailedTrip(Player& bot, BotState& state)
+{
+    Journey trip = std::move(state.Trip);
+    state.Trip = {};
+    state.TripFailed = false;
+    ++FailedTripCount;
+    Position const& goal = trip.Goal;
+    if (!bot.TeleportTo(trip.Map, goal.GetPositionX(), goal.GetPositionY(), goal.GetPositionZ() + 0.5f, goal.GetOrientation()))
+        return false;
+    ++TeleportCount;
     return true;
 }
 
@@ -1393,5 +1603,8 @@ std::string RandomPlayerbotQuests::Describe()
         ", objects used " + std::to_string(ObjectCount.load()) + "; bots questing " +
         std::to_string(ActivityCounts[uint8(Activity::Questing)].load()) + ", travelling " +
         std::to_string(ActivityCounts[uint8(Activity::Travelling)].load()) + ", grinding " +
-        std::to_string(ActivityCounts[uint8(Activity::Grinding)].load());
+        std::to_string(ActivityCounts[uint8(Activity::Grinding)].load()) + ", on journeys " +
+        std::to_string(ActivityCounts[uint8(Activity::Flying)].load()) + "; journeys " +
+        std::to_string(TripCount.load()) + ", flights " + std::to_string(FlightCount.load()) + ", failed " +
+        std::to_string(FailedTripCount.load()) + ", teleported " + std::to_string(TeleportCount.load());
 }
