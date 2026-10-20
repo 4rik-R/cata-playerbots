@@ -403,9 +403,16 @@ Playerbots.Random.Level.Max = 85
 #                     fly when that saves riding, else ride all the way. A
 #                     journey stuck four times or longer than 20 minutes ends
 #                     by teleport, as does a move to another continent.
+#                     Every five levels, or when gear is worn or the bags are
+#                     full of junk, a bot hearths to Stormwind or Orgrimmar,
+#                     repairs and sells at a vendor, stops at its class
+#                     trainer, strolls past bankers, auctioneers and
+#                     innkeepers for a few minutes and sets out again on a
+#                     journey. At most a fifth of the bots visit at once.
 #                     The status line counts bots questing, travelling,
 #                     grinding and on journeys, journeys, flights, failed
-#                     journeys and teleports.
+#                     journeys and teleports, bots in capitals, capital
+#                     visits and failed hearthstones.
 #                     Requires Playerbots.Random.Grind.Enabled and
 #                     Playerbots.Random.Level.Enabled.
 #        Default:     0 - (Disabled)
