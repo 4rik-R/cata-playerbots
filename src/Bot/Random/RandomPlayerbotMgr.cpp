@@ -7,6 +7,7 @@
 #include "RandomPlayerbotMgr.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotProgression.h"
+#include "RandomPlayerbotQuests.h"
 #include "NativeCharacterCreationReceipt.h"
 #include "AccountMgr.h"
 #include "CharacterCache.h"
@@ -308,6 +309,8 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
     // Levelling indexes before the first admission, so bots are prepared on login.
     if (RandomPlayerbotProgression::GetSettings().Enabled)
         RandomPlayerbotProgression::BuildIndexes();
+    if (RandomPlayerbotQuests::Enabled())
+        RandomPlayerbotQuests::BuildIndex();
 
     if (Slots.size() > Settings.Count)
         StopAll(Settings.Count);
@@ -375,7 +378,8 @@ std::string RandomPlayerbotMgr::Describe()
         ", grinding " + (PlayerbotModuleRandomGrindEnabled() ? "on" : "off") +
         ", levels " + (RandomPlayerbotProgression::GetSettings().Enabled ?
             std::to_string(RandomPlayerbotProgression::GetSettings().MinLevel) + "-" +
-            std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) + ".";
+            std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) +
+        ", " + RandomPlayerbotQuests::Describe() + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)

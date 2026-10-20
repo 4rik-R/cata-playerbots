@@ -1414,7 +1414,12 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                 if (!_soloRecovering && !_ai.GetRestSpellId() && !_ai.LootRequests().Pending() &&
                     !_ai.LootPursuit().Active() && !_player->IsNonMeleeSpellCast(false) && !_player->IsMounted() &&
                     RandomPlayerbotGrind::ReadyToPull(false, _player->GetHealthPct(), mana, usesMana))
-                    target = RandomPlayerbotGrind::SelectTarget(*_player);
+                {
+                    // Mobs an open quest needs first, from further out.
+                    target = RandomPlayerbotQuests::SelectQuestTarget(*_player);
+                    if (!target)
+                        target = RandomPlayerbotGrind::SelectTarget(*_player);
+                }
             }
         }
         if (target)
@@ -1664,7 +1669,11 @@ void PlayerbotSessionBehavior::UpdateSoloController()
     }
     bool solo = IsSoloGrinder(*bot);
     if (_soloHomeReset.exchange(false))
+    {
         _soloHomeSet = false; // relocated by the world thread: grind around the new spot
+        _questState.Giver.Clear();
+        _questState.Hunting = false;
+    }
     if (solo)
     {
         _ai.SetController(bot->GetGUID());
@@ -1732,6 +1741,11 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
         if (bot->GetStandState() == UNIT_STAND_STATE_SIT)
             bot->SetStandState(UNIT_STAND_STATE_STAND);
     }
+
+    // Quest givers and quest mobs come before idle wandering.
+    if (_soloHomeSet && RandomPlayerbotQuests::Enabled() && PlayerbotCombatMovement::CanMove(*bot) &&
+        RandomPlayerbotQuests::Update(_session, *bot, _questState, _soloHome, getMSTime()))
+        return;
 
     if (_soloWanderTimer > diff)
     {
@@ -1813,6 +1827,15 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
             _soloHomeReset = true;
             _progressRelocateMs = 0; // move on to a grind spot once there
         }
+        return;
+    }
+
+    // A questing bot with nothing left around it moves on to another quest giver.
+    if (_questState.WantsRelocation.exchange(false) && _soloActive.load() && !bot->GetGroup() &&
+        level > RandomPlayerbotLevels::StartZoneLevel && RandomPlayerbotQuests::RelocateToGiver(*bot))
+    {
+        _progressFarTeleport = bot->IsBeingTeleportedFar();
+        _soloHomeReset = true;
         return;
     }
 

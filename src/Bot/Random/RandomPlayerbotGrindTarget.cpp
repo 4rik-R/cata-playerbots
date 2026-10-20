@@ -13,9 +13,7 @@
 #include "Player.h"
 #include <list>
 
-namespace
-{
-bool Eligible(Player& bot, Creature& creature)
+bool RandomPlayerbotGrind::Eligible(Player& bot, Creature& creature)
 {
     CreatureTemplate const* info = creature.GetCreatureTemplate();
     return info && creature.IsAlive() && creature.IsInWorld() && !creature.IsControlledByPlayer() &&
@@ -26,7 +24,6 @@ bool Eligible(Player& bot, Creature& creature)
         RandomPlayerbotGrind::LevelAllows(bot.getLevel(), creature.getLevel()) &&
         !PlayerbotTargetSelection::IsProtectedTarget(creature) &&
         bot.IsValidAttackTarget(&creature) && bot.CanSeeOrDetect(&creature) && bot.IsWithinLOSInMap(&creature);
-}
 }
 
 Creature* RandomPlayerbotGrind::SelectTarget(Player& bot)

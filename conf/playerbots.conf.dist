@@ -383,3 +383,18 @@ Playerbots.Random.Grind.Enabled = 0
 Playerbots.Random.Level.Enabled = 0
 Playerbots.Random.Level.Min = 1
 Playerbots.Random.Level.Max = 85
+
+#    Playerbots.Random.Quest.Enabled
+#        Description: Random bots quest like players. They walk to quest givers
+#                     within 80 yards, take quests that suit their level (kill
+#                     and collect quests with spawned mobs and creature drops),
+#                     prefer the mobs those quests need, turn them in and pick
+#                     the best reward. Quests without progress for 30 minutes
+#                     are abandoned. Bots are placed next to quest givers of a
+#                     fitting zone. Requires Playerbots.Random.Grind.Enabled and
+#                     Playerbots.Random.Level.Enabled.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+Playerbots.Random.Quest.Enabled = 0
+
