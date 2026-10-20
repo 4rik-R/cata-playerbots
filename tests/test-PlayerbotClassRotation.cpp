@@ -19,6 +19,8 @@ constexpr Spec AllSpecs[] = {
     { ClassShaman, TreeShamanRestoration, false }, { ClassShaman, 0, false },
     { ClassDruid, TreeDruidBalance, false }, { ClassDruid, TreeDruidFeral, true },
     { ClassDruid, TreeDruidFeral, false }, { ClassDruid, TreeDruidRestoration, false }, { ClassDruid, 0, false },
+    { ClassDeathKnight, TreeDeathKnightBlood, false }, { ClassDeathKnight, TreeDeathKnightFrost, false },
+    { ClassDeathKnight, TreeDeathKnightUnholy, false }, { ClassDeathKnight, 0, false },
 };
 }
 
@@ -41,7 +43,8 @@ TEST_CASE("Class rotation tables cover every table class and spec", "[playerbots
                 step.Condition == When::ManaLowHealthOk || step.Condition == When::SelfBelow20 ||
                 step.Condition == When::SelfBelow40 || step.Condition == When::SelfHotMissing ||
                 step.Condition == When::SelfAuraMissing || step.Condition == When::FireTotemMissing)
-                REQUIRE((step.On == Target::Self || step.SpellId == 689)); // Drain Life hits the enemy
+                // Drain Life and Death Strike heal by hitting the enemy.
+                REQUIRE((step.On == Target::Self || step.SpellId == 689 || step.SpellId == 49998));
             // A step replaced by a better spell must not replace itself.
             REQUIRE(step.Over != step.SpellId);
             if (step.Condition == When::PetHurt)
@@ -49,7 +52,8 @@ TEST_CASE("Class rotation tables cover every table class and spec", "[playerbots
         }
     }
     REQUIRE_FALSE(Supports(1));
-    REQUIRE_FALSE(Supports(6));
+    REQUIRE(Supports(ClassDeathKnight));
+    REQUIRE_FALSE(IsRanged(ClassDeathKnight, TreeDeathKnightFrost));
     REQUIRE(IsRanged(ClassHunter));
     REQUIRE(IsRanged(ClassWarlock));
     REQUIRE_FALSE(IsRanged(ClassRogue));
@@ -101,6 +105,12 @@ TEST_CASE("Class rotation picks tables by specialization", "[playerbots][rotatio
     REQUIRE(UpkeepSteps(ClassShaman, TreeShamanRestoration).data() == ShamanRestorationUpkeep);
     REQUIRE(UpkeepSteps(ClassShaman, TreeShamanElemental).data() == ShamanUpkeep);
     REQUIRE(UpkeepSteps(ClassDruid).empty());
+    REQUIRE(CombatSteps(ClassDeathKnight, TreeDeathKnightBlood).data() == DeathKnightBlood);
+    REQUIRE(CombatSteps(ClassDeathKnight, TreeDeathKnightUnholy).data() == DeathKnightUnholy);
+    REQUIRE(CombatSteps(ClassDeathKnight, 0).data() == DeathKnightFrost);
+    REQUIRE(UpkeepSteps(ClassDeathKnight, TreeDeathKnightBlood).data() == DeathKnightBloodUpkeep);
+    REQUIRE(UpkeepSteps(ClassDeathKnight, TreeDeathKnightUnholy).data() == DeathKnightUnholyUpkeep);
+    REQUIRE(UpkeepSteps(ClassDeathKnight, TreeDeathKnightFrost).data() == DeathKnightFrostUpkeep);
     // Only the prot table taunts; only Retribution spends holy power on damage.
     auto has = [](std::span<Step const> steps, uint32_t spell)
     {
@@ -111,6 +121,19 @@ TEST_CASE("Class rotation picks tables by specialization", "[playerbots][rotatio
     REQUIRE(has(PaladinProtection, 62124));
     REQUIRE_FALSE(has(PaladinRetribution, 62124));
     REQUIRE(has(PaladinRetribution, 85256));
+    // Only Blood taunts; every death knight spec applies both diseases.
+    REQUIRE(has(DeathKnightBlood, 56222));
+    REQUIRE_FALSE(has(DeathKnightFrost, 56222));
+    REQUIRE_FALSE(has(DeathKnightUnholy, 49576));
+    for (auto steps : { std::span<Step const>(DeathKnightBlood), std::span<Step const>(DeathKnightFrost),
+        std::span<Step const>(DeathKnightUnholy) })
+    {
+        REQUIRE(has(steps, 45477));
+        REQUIRE(has(steps, 45462));
+        for (Step const& step : steps)
+            if (step.SpellId == 45477 || step.SpellId == 45462)
+                REQUIRE((step.Condition == When::MyDotMissing && (step.Aura == 55095 || step.Aura == 55078)));
+    }
 }
 
 TEST_CASE("Exclusive self buffs count each other as worn", "[playerbots][rotation]")
@@ -119,6 +142,12 @@ TEST_CASE("Exclusive self buffs count each other as worn", "[playerbots][rotatio
     REQUIRE(ExclusiveGroup(31801)[1] == 20154);
     REQUIRE(ExclusiveGroup(324)[0] == 52127);
     REQUIRE(ExclusiveGroup(768).empty());
+    REQUIRE(ExclusiveGroup(0).empty());
+    // Presences: three members, and no padding zero counts as a member.
+    REQUIRE(ExclusiveGroup(48265).size() == 3);
+    REQUIRE(ExclusiveGroup(48263)[1] == 48266);
+    for (auto const& group : ExclusiveSelfAuras)
+        REQUIRE(ExclusiveGroup(group[0]).size() >= 2);
 }
 
 TEST_CASE("Class rotation keeps spell ids unique per table", "[playerbots][rotation]")

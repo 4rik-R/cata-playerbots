@@ -80,3 +80,39 @@ TEST_CASE("Random levels: only fresh bots are initialized", "[playerbots][random
     CHECK(GearLevelLow(3) == 1);
     CHECK(GearLevelLow(40) == 34);
 }
+
+TEST_CASE("Random levels: death knights, Worgen and Goblins start above their phased areas", "[playerbots][random]")
+{
+    std::set<uint8_t> races = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22};
+    std::set<uint8_t> classes = {1, 2, 3, 4, 5, 6, 7, 8, 9, 11};
+    for (uint8_t race : races)
+        for (uint8_t playerClass : classes)
+            for (uint32_t guid = 1; guid < 300; ++guid)
+            {
+                INFO("race " << int(race) << " class " << int(playerClass) << " guid " << guid);
+                uint32_t level = TargetLevelFor(guid, race, playerClass, 1, 85);
+                uint32_t minimum = MinimumLevel(race, playerClass);
+                REQUIRE(level >= minimum);
+                REQUIRE(level <= MaxLevel);
+                if (playerClass == ClassDeathKnight)
+                    REQUIRE(level >= 58);
+                else if (race == RaceWorgen || race == RaceGoblin)
+                    REQUIRE(level >= 10);
+                // A configured range below the minimum is lifted, not ignored.
+                REQUIRE(TargetLevelFor(guid, race, playerClass, 1, 5) >= std::min<uint32_t>(minimum, 85));
+                REQUIRE(StartsPhased(race, playerClass) == (minimum > 1));
+            }
+    CHECK(MinimumLevel(1, 1) == 1);
+    CHECK(TargetLevelFor(42, 22, 6, 70, 70) == 70);
+    CHECK(TargetLevelFor(42, 1, 6, 1, 20) == 58);
+}
+
+TEST_CASE("Random levels: a native level 55 death knight is still set up", "[playerbots][random]")
+{
+    CHECK(NeedsInitialization(55, 58, MinimumLevel(1, ClassDeathKnight)));
+    CHECK(NeedsInitialization(55, 70, MinimumLevel(1, ClassDeathKnight)));
+    CHECK_FALSE(NeedsInitialization(58, 70, MinimumLevel(1, ClassDeathKnight)));
+    CHECK(NeedsInitialization(1, 10, MinimumLevel(RaceWorgen, 1)));
+    CHECK_FALSE(NeedsInitialization(10, 40, MinimumLevel(RaceGoblin, 1)));
+    CHECK_FALSE(NeedsInitialization(30, 40, MinimumLevel(1, 1)));
+}

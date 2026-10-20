@@ -73,11 +73,13 @@ inline uint32_t RandomPlayerbotLoginBudget(uint32_t online, uint32_t loading, ui
     return std::min({target - active, perInterval, ready});
 }
 
-// Playable races without phased starting areas (Worgen 22 and Goblin 9 come later).
-constexpr std::array<uint8_t, 5> RandomPlayerbotAllianceRaces = {1, 3, 4, 7, 11};
-constexpr std::array<uint8_t, 5> RandomPlayerbotHordeRaces = {2, 5, 6, 8, 10};
-// Classes with a combat AI: Warrior, Mage, Priest, Rogue, Hunter, Warlock, Paladin, Shaman, Druid.
-constexpr std::array<uint8_t, 9> RandomPlayerbotClasses = {1, 8, 5, 4, 3, 9, 2, 7, 11};
+// Every playable race. Worgen (22) and Goblins (9) start in phased areas and are
+// moved to their capital on first login, like death knights from Acherus.
+constexpr std::array<uint8_t, 6> RandomPlayerbotAllianceRaces = {1, 3, 4, 7, 11, 22};
+constexpr std::array<uint8_t, 6> RandomPlayerbotHordeRaces = {2, 5, 6, 8, 10, 9};
+// Classes with a combat AI: Warrior, Mage, Priest, Rogue, Hunter, Warlock, Paladin, Shaman, Druid, Death Knight.
+constexpr std::array<uint8_t, 10> RandomPlayerbotClasses = {1, 8, 5, 4, 3, 9, 2, 7, 11, 6};
+constexpr uint8_t RandomPlayerbotDeathKnight = 6;
 
 // "4, 3,9" -> class mask. Unknown or unsupported ids are skipped; empty means all.
 inline uint32_t ParseRandomPlayerbotClasses(std::string const& text)
@@ -109,6 +111,15 @@ inline uint32_t ParseRandomPlayerbotClasses(std::string const& text)
 inline bool RandomPlayerbotClassEnabled(uint32_t classMask, uint8_t classId)
 {
     return !classMask || (classMask & (1u << (classId - 1)));
+}
+
+// The class mask with one class removed; an empty mask stands for every class.
+inline uint32_t RandomPlayerbotClassesWithout(uint32_t classMask, uint8_t classId)
+{
+    if (!classMask)
+        for (uint8_t id : RandomPlayerbotClasses)
+            classMask |= 1u << (id - 1);
+    return classMask & ~(1u << (classId - 1));
 }
 
 struct RandomPlayerbotProfile
