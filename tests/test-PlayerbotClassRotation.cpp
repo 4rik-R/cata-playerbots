@@ -8,13 +8,28 @@
 
 using namespace PlayerbotClassRotation;
 
-TEST_CASE("Class rotation tables cover rogue, hunter and warlock", "[playerbots][rotation]")
+namespace
 {
-    for (uint8_t playerClass : { ClassRogue, ClassHunter, ClassWarlock })
+struct Spec { uint8_t Class; uint32_t Tree; bool CatForm; };
+constexpr Spec AllSpecs[] = {
+    { ClassRogue, 0, false }, { ClassHunter, 0, false }, { ClassWarlock, 0, false },
+    { ClassPaladin, TreePaladinHoly, false }, { ClassPaladin, TreePaladinProtection, false },
+    { ClassPaladin, TreePaladinRetribution, false }, { ClassPaladin, 0, false },
+    { ClassShaman, TreeShamanElemental, false }, { ClassShaman, TreeShamanEnhancement, false },
+    { ClassShaman, TreeShamanRestoration, false }, { ClassShaman, 0, false },
+    { ClassDruid, TreeDruidBalance, false }, { ClassDruid, TreeDruidFeral, true },
+    { ClassDruid, TreeDruidFeral, false }, { ClassDruid, TreeDruidRestoration, false }, { ClassDruid, 0, false },
+};
+}
+
+TEST_CASE("Class rotation tables cover every table class and spec", "[playerbots][rotation]")
+{
+    for (Spec spec : AllSpecs)
     {
-        INFO("class " << int(playerClass));
+        INFO("class " << int(spec.Class) << " tree " << spec.Tree);
+        uint8_t playerClass = spec.Class;
         REQUIRE(Supports(playerClass));
-        auto steps = CombatSteps(playerClass);
+        auto steps = CombatSteps(playerClass, spec.Tree, spec.CatForm);
         // The last step needs no condition so the bot always has something to do.
         REQUIRE((steps.back().Condition == When::Always || steps.back().Condition == When::NotInMelee));
         for (Step const& step : steps)
@@ -23,17 +38,26 @@ TEST_CASE("Class rotation tables cover rogue, hunter and warlock", "[playerbots]
             REQUIRE(step.Name != nullptr);
             // Self-only conditions never target the enemy, so CanAutoCast accepts them.
             if (step.Condition == When::SelfBelow35 || step.Condition == When::ComboBuff ||
-                step.Condition == When::ManaLowHealthOk)
-                REQUIRE(step.On == Target::Self);
+                step.Condition == When::ManaLowHealthOk || step.Condition == When::SelfBelow20 ||
+                step.Condition == When::SelfBelow40 || step.Condition == When::SelfHotMissing ||
+                step.Condition == When::SelfAuraMissing || step.Condition == When::FireTotemMissing)
+                REQUIRE((step.On == Target::Self || step.SpellId == 689)); // Drain Life hits the enemy
+            // A step replaced by a better spell must not replace itself.
+            REQUIRE(step.Over != step.SpellId);
             if (step.Condition == When::PetHurt)
                 REQUIRE(step.On == Target::Pet);
         }
     }
     REQUIRE_FALSE(Supports(1));
-    REQUIRE_FALSE(Supports(2));
+    REQUIRE_FALSE(Supports(6));
     REQUIRE(IsRanged(ClassHunter));
     REQUIRE(IsRanged(ClassWarlock));
     REQUIRE_FALSE(IsRanged(ClassRogue));
+    REQUIRE_FALSE(IsRanged(ClassPaladin, TreePaladinHoly));
+    REQUIRE(IsRanged(ClassShaman, TreeShamanRestoration));
+    REQUIRE_FALSE(IsRanged(ClassShaman, TreeShamanEnhancement));
+    REQUIRE(IsRanged(ClassDruid, TreeDruidFeral, false)); // no Cat Form yet
+    REQUIRE_FALSE(IsRanged(ClassDruid, TreeDruidFeral, true));
     REQUIRE(HasPet(ClassHunter));
     REQUIRE_FALSE(HasPet(ClassRogue));
 }
@@ -56,14 +80,55 @@ TEST_CASE("Class rotation decisions", "[playerbots][rotation]")
     REQUIRE(PetHurt(true, 50.0f, false));
     REQUIRE_FALSE(PetHurt(true, 50.0f, true));
     REQUIRE_FALSE(PetHurt(false, 10.0f, true));
+    REQUIRE(BleedFinisherReady(5, 80.0f, false));
+    REQUIRE_FALSE(BleedFinisherReady(5, 30.0f, false));
+    REQUIRE_FALSE(BleedFinisherReady(3, 80.0f, false));
+    REQUIRE_FALSE(BleedFinisherReady(5, 80.0f, true));
+    REQUIRE(SelfHotReady(50.0f, false));
+    REQUIRE_FALSE(SelfHotReady(70.0f, false));
+    REQUIRE_FALSE(SelfHotReady(50.0f, true));
+}
+
+TEST_CASE("Class rotation picks tables by specialization", "[playerbots][rotation]")
+{
+    REQUIRE(CombatSteps(ClassPaladin, TreePaladinProtection).data() == PaladinProtection);
+    REQUIRE(CombatSteps(ClassPaladin, TreePaladinHoly).data() == PaladinHoly);
+    REQUIRE(CombatSteps(ClassPaladin, 0).data() == PaladinRetribution);
+    REQUIRE(CombatSteps(ClassShaman, TreeShamanEnhancement).data() == ShamanEnhancement);
+    REQUIRE(CombatSteps(ClassShaman, TreeShamanRestoration).data() == ShamanCaster);
+    REQUIRE(CombatSteps(ClassDruid, TreeDruidFeral, true).data() == DruidCat);
+    REQUIRE(CombatSteps(ClassDruid, TreeDruidFeral, false).data() == DruidCaster);
+    REQUIRE(UpkeepSteps(ClassShaman, TreeShamanRestoration).data() == ShamanRestorationUpkeep);
+    REQUIRE(UpkeepSteps(ClassShaman, TreeShamanElemental).data() == ShamanUpkeep);
+    REQUIRE(UpkeepSteps(ClassDruid).empty());
+    // Only the prot table taunts; only Retribution spends holy power on damage.
+    auto has = [](std::span<Step const> steps, uint32_t spell)
+    {
+        for (Step const& step : steps)
+            if (step.SpellId == spell) return true;
+        return false;
+    };
+    REQUIRE(has(PaladinProtection, 62124));
+    REQUIRE_FALSE(has(PaladinRetribution, 62124));
+    REQUIRE(has(PaladinRetribution, 85256));
+}
+
+TEST_CASE("Exclusive self buffs count each other as worn", "[playerbots][rotation]")
+{
+    REQUIRE(ExclusiveGroup(687).size() == 2);
+    REQUIRE(ExclusiveGroup(31801)[1] == 20154);
+    REQUIRE(ExclusiveGroup(324)[0] == 52127);
+    REQUIRE(ExclusiveGroup(768).empty());
 }
 
 TEST_CASE("Class rotation keeps spell ids unique per table", "[playerbots][rotation]")
 {
-    for (uint8_t playerClass : { ClassRogue, ClassWarlock })
+    for (Spec spec : AllSpecs)
     {
+        if (spec.Class == ClassHunter)
+            continue; // Arcane Shot appears twice on purpose
         std::set<uint32_t> ids;
-        for (Step const& step : CombatSteps(playerClass))
+        for (Step const& step : CombatSteps(spec.Class, spec.Tree, spec.CatForm))
             REQUIRE(ids.insert(step.SpellId).second);
     }
 }

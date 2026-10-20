@@ -106,6 +106,8 @@ bool HasIncomingDirectHeal(Player const& bot, Player const& target);
 bool HasIncomingResurrection(Player const& bot, Player const& target);
 bool ShouldDeferHealing(Player const& bot, Player const& target);
 bool ManaAllowsHealing(Player const& bot, Player const& target, std::uint32_t spell);
+// Shared with paladin, shaman and druid healers through PlayerbotHealerKit.
+bool KnowsHealingSpell(Player const& bot);
 ObjectGuid HealingReachTarget(Player& bot, Player& owner, float range = 30.0f);
 Player* ResurrectionTarget(Player& bot, float range = 30.0f, Player* owner = nullptr, bool nearOwner = false);
 ObjectGuid ResurrectionReachTarget(Player& bot, Player& owner, float range);

@@ -21,6 +21,18 @@ inline Estimate ForPriestSpell(std::uint32_t spell)
         default: return {0, Efficiency::VeryHigh}; // Unported actions are unaffected.
     }
 }
+// Other healers map their spells to the priest spell of the same job:
+// fast emergency heal, efficient heal, heal over time.
+enum class Job { Emergency, Heal, Hot };
+inline Estimate ForJob(Job job)
+{
+    switch (job)
+    {
+        case Job::Emergency: return ForPriestSpell(2061);
+        case Job::Heal: return ForPriestSpell(2050);
+        default: return ForPriestSpell(139);
+    }
+}
 // Donor percentages are integer snapshots; the estimated amount is scheduling
 // metadata, not a prediction or replacement for native Cata healing formulas.
 inline bool Allows(bool enabled, float mana, float health, bool tank, Estimate estimate)

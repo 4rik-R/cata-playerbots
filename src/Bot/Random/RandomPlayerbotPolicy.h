@@ -76,8 +76,8 @@ inline uint32_t RandomPlayerbotLoginBudget(uint32_t online, uint32_t loading, ui
 // Playable races without phased starting areas (Worgen 22 and Goblin 9 come later).
 constexpr std::array<uint8_t, 5> RandomPlayerbotAllianceRaces = {1, 3, 4, 7, 11};
 constexpr std::array<uint8_t, 5> RandomPlayerbotHordeRaces = {2, 5, 6, 8, 10};
-// Classes with a combat AI: Warrior, Mage, Priest, Rogue, Hunter, Warlock.
-constexpr std::array<uint8_t, 6> RandomPlayerbotClasses = {1, 8, 5, 4, 3, 9};
+// Classes with a combat AI: Warrior, Mage, Priest, Rogue, Hunter, Warlock, Paladin, Shaman, Druid.
+constexpr std::array<uint8_t, 9> RandomPlayerbotClasses = {1, 8, 5, 4, 3, 9, 2, 7, 11};
 
 // "4, 3,9" -> class mask. Unknown or unsupported ids are skipped; empty means all.
 inline uint32_t ParseRandomPlayerbotClasses(std::string const& text)

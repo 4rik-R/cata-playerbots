@@ -104,8 +104,9 @@ TEST_CASE("Random population class list parses ids and limits the roll", "[playe
 {
     REQUIRE(ParseRandomPlayerbotClasses("") == 0);
     REQUIRE(ParseRandomPlayerbotClasses("4, 3,9") == ((1u << 3) | (1u << 2) | (1u << 8)));
-    // Paladin (2) has no combat AI yet; 99 is no class.
-    REQUIRE(ParseRandomPlayerbotClasses("2,99") == 0);
+    // Death knight (6) has no combat AI yet; 99 is no class.
+    REQUIRE(ParseRandomPlayerbotClasses("6,99") == 0);
+    REQUIRE(ParseRandomPlayerbotClasses("2,7,11") == ((1u << 1) | (1u << 6) | (1u << 10)));
     REQUIRE(RandomPlayerbotClassEnabled(0, 4));
     std::mt19937 engine(3);
     uint32_t mask = ParseRandomPlayerbotClasses("4,9");

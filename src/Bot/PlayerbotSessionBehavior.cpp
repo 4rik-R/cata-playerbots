@@ -37,6 +37,7 @@
 #include "../Script/PlayerbotConfig.h"
 #include "PlayerbotWarriorStrategy.h"
 #include "PlayerbotClassRotation.h"
+#include "PlayerbotHybridHealer.h"
 #include "RotationAiObjectContext.h"
 #include "World.h"
 #include "Random.h"
@@ -1157,10 +1158,11 @@ bool PlayerbotSessionBehavior::UpdateSupportReach(PlayerbotPartySupport::ReachKi
     Player* bot = _ai.GetBot();
     Player* owner = _ai.GetController();
     ObjectGuid next;
-    bool enabled = bot && owner && bot->getClass() == CLASS_PRIEST &&
+    bool hybrid = bot && PlayerbotHybridHealer::IsPartyHealer(*bot);
+    bool enabled = bot && owner && (bot->getClass() == CLASS_PRIEST || hybrid) &&
         bot->IsInWorld() && owner->IsInWorld() && bot->IsAlive() && owner->IsAlive() &&
         _serverOriginFollowTargetGuidLow.load() && _serverOriginAutoAssistEnabled.load() &&
-        PlayerbotModuleEnginePriestHealEnabled() && !_engineTransferSuspended &&
+        (hybrid || PlayerbotModuleEnginePriestHealEnabled()) && !_engineTransferSuspended &&
         !bot->IsBeingTeleported() && !owner->IsBeingTeleported() && !bot->IsNonMeleeSpellCast(false) &&
         !bot->IsMounted() && PlayerbotCombatMovement::CanMove(*bot) &&
         !_serverOriginInstanceJoinRequest.load() && !_ai.GetRestSpellId() &&
@@ -1217,9 +1219,12 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
     };
 
     // Called only after commands and the offensive target have been validated.
-    auto tickPriest = [this, _player, diff, solo]()
+    // Holy paladins, Restoration shamans and druids heal in a party; alone they fight.
+    bool const hybridHealer = !solo && PlayerbotHybridHealer::IsPartyHealer(*_player);
+    bool const supportHealer = (_player->getClass() == CLASS_PRIEST && !solo) || hybridHealer;
+    auto tickPriest = [this, _player, diff, solo, hybridHealer]()
     {
-        if (_player->getClass() != CLASS_PRIEST ||
+        if ((_player->getClass() != CLASS_PRIEST && !hybridHealer) ||
             !(_serverOriginFollowTargetGuidLow.load() || _serverOriginRecoveryOwnerGuidLow || solo))
             return;
         if (_serverOriginHealCheckTimer > diff)
@@ -1229,7 +1234,9 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             _serverOriginHealCheckTimer = 750;
             if (UpdateSupportReach())
                 return;
-            if (_engine && PlayerbotModuleEnginePriestHealEnabled())
+            if (hybridHealer)
+                PlayerbotHybridHealer::HealParty(*_player, _ai.GetController());
+            else if (_engine && PlayerbotModuleEnginePriestHealEnabled())
             {
                 if (!_priestEngineHealAnnounced)
                 {
@@ -1245,7 +1252,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         }
     };
 
-    auto cease = [this, _player]()
+    auto cease = [this, _player, supportHealer]()
     {
         if (_stateEngines) _stateEngines->CancelPendingActions();
         _ai.ClearCurrentTarget();
@@ -1259,7 +1266,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         _player->AttackStop();
         _player->GetMotionMaster()->Clear(MOTION_SLOT_ACTIVE);
         _player->StopMoving();
-        if (_player->getClass() == CLASS_PRIEST)
+        if (_player->getClass() == CLASS_PRIEST || supportHealer)
         {
             // Priest support replaced idle follow, unlike active Mage/Warrior chase.
             // Restore it even while native combat flags are still draining.
@@ -1283,13 +1290,13 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             owner->IsWithinDistInMap(target, 25.0f) && _player->IsWithinLOSInMap(target);
     };
 
-    auto beginAttack = [this, _player, &cease, solo](Creature* target, bool autoAssisted)
+    auto beginAttack = [this, _player, &cease, solo, supportHealer](Creature* target, bool autoAssisted)
     {
-        // A solo Priest damages its own target from spell range; a party Priest supports.
-        bool priest = _player->getClass() == CLASS_PRIEST && !solo;
+        // A solo Priest damages its own target from spell range; a party healer supports.
+        bool priest = supportHealer;
         bool rotation = PlayerbotClassRotation::Supports(_player->getClass());
         bool ranged = _player->getClass() == CLASS_MAGE || (_player->getClass() == CLASS_PRIEST && solo) ||
-            (rotation && PlayerbotClassRotation::IsRanged(_player->getClass()));
+            (rotation && PlayerbotClassRotation::FightsAtRange(*_player));
         if (_player->getClass() == CLASS_PRIEST && !PlayerbotModuleEnginePriestHealEnabled())
             return false;
         if (!priest && !ranged && _player->getClass() != CLASS_WARRIOR && !rotation)
@@ -1472,9 +1479,10 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         bool targetBeyondLeash = target && !_player->IsWithinDistInMap(target, 35.0f);
         if (!owner || !owner->IsAlive() || !target || target->IsControlledByPlayer() || !target->IsAlive() || !_player->IsAlive() ||
             PlayerbotTargetSelection::IsProtectedTarget(*target) ||
-            (_player->getClass() != CLASS_PRIEST && _player->GetVictim() != target) || !_player->IsValidAttackTarget(target) ||
-            (_player->getClass() == CLASS_PRIEST && (_player->IsBeingTeleported() ||
-                !PlayerbotModuleEnginePriestHealEnabled() ||
+            (_player->getClass() != CLASS_PRIEST && !supportHealer && _player->GetVictim() != target) ||
+            !_player->IsValidAttackTarget(target) ||
+            ((_player->getClass() == CLASS_PRIEST || supportHealer) && (_player->IsBeingTeleported() ||
+                (_player->getClass() == CLASS_PRIEST && !PlayerbotModuleEnginePriestHealEnabled()) ||
                 (!pullGrace && !PlayerbotTargetSelection::IsEngagedWithAttachedParty(*_player, *owner, *target)))) ||
             (_serverOriginAutoAssistedAttack && !PlayerbotTargetSelection::IsEngagedWithAttachedParty(*_player, *owner, *target)) ||
             ownerBeyondLeash || targetBeyondLeash)
@@ -1497,6 +1505,22 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         {
             tickPriest();
             return; // never fall through to the Warrior melee path
+        }
+
+        if (hybridHealer)
+        {
+            tickPriest();
+            // Nobody needs healing: help from where the healer stands.
+            if (_serverOriginActionCheckTimer > diff)
+                _serverOriginActionCheckTimer -= diff;
+            else
+            {
+                _serverOriginActionCheckTimer = 1000;
+                if (!_player->IsNonMeleeSpellCast(false) && _serverOriginSupportReachGuid.IsEmpty() &&
+                    !PlayerbotHybridHealer::AnyoneNeedsHealing(*_player, _ai.GetController()))
+                    PlayerbotClassRotation::Execute(*_player, *target);
+            }
+            return;
         }
 
         if (_serverOriginActionCheckTimer > diff)
@@ -1561,9 +1585,9 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         }
 
         bool rotation = PlayerbotClassRotation::Supports(_player->getClass());
-        if (rotation && PlayerbotClassRotation::IsRanged(_player->getClass()))
+        if (rotation && PlayerbotClassRotation::FightsAtRange(*_player))
         {
-            // Rogues, hunters and warlocks cast from their class table; potions stay in the engine.
+            // Table classes at range cast from their class table; potions stay in the engine.
             if (!PlayerbotClassRotation::Execute(*_player, *target) && _engine)
                 TickEngine(true);
             return;
