@@ -20,6 +20,7 @@
 #include "PhasingHandler.h"
 #include "Map.h"
 #include "Pet.h"
+#include "QuestDef.h"
 #include "Player.h"
 #include "Random.h"
 #include "SpellInfo.h"
@@ -60,8 +61,10 @@ constexpr uint32 RuneOfTheFallenCrusader = 53344;
 constexpr uint32 PhasedStartMaps[] = { 609, 648, 654 };
 // The core lets nobody but a GM leave them before Death Gate is known or the last quest of the area is done.
 constexpr uint32 DeathGate = 50977;
-constexpr uint32 KezanFinalQuest = 25265;
-constexpr uint32 GilneasFinalQuest = 26706;
+// Quest sorts of the start chains: death knight class quests (Acherus), Kezan, the Lost Isles, Gilneas, Gilneas City.
+constexpr int32 DeathKnightQuests = -372;
+constexpr int32 GoblinStartZones[] = { 4737, 4720 };
+constexpr int32 WorgenStartZones[] = { 4714, 4755 };
 // Capital entrances (game_tele Stormwind and Orgrimmar) where these bots are bound.
 struct Capital { uint32 Map; float X, Y, Z, O; };
 constexpr Capital Stormwind = { 0, -8833.07f, 622.778f, 93.9317f, 0.6771f };
@@ -701,6 +704,7 @@ void RandomPlayerbotProgression::Initialize(Player& bot, uint32_t level)
     EquipForLevel(bot);
     LearnRiding(bot);
     Restock(bot);
+    CompleteStartChain(bot);
     if (bot.GetMoney() < StartingMoney(level))
         bot.ModifyMoney(int64(StartingMoney(level) - bot.GetMoney()));
     bot.SetFullHealth();
@@ -815,15 +819,65 @@ bool RandomPlayerbotProgression::MoveToCapital(Player& bot)
     sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
         capital.Y, capital.Z);
     bot.SetHomebind(WorldLocation(capital.Map, capital.X, capital.Y, capital.Z, capital.O), areaId);
-    if (bot.getClass() == CLASS_DEATH_KNIGHT && !bot.HasSpell(DeathGate))
-        bot.LearnSpell(DeathGate, false);
-    if (bot.getRace() == RACE_GOBLIN && bot.GetQuestStatus(KezanFinalQuest) != QUEST_STATUS_REWARDED)
-        bot.SetRewardedQuest(KezanFinalQuest);
-    if (bot.getRace() == RACE_WORGEN && bot.GetQuestStatus(GilneasFinalQuest) != QUEST_STATUS_REWARDED)
-        bot.SetRewardedQuest(GilneasFinalQuest);
+    CompleteStartChain(bot);
     if (!bot.TeleportTo(capital.Map, capital.X, capital.Y, capital.Z, capital.O))
         return false;
     TC_LOG_INFO("module.playerbots", "PB-RANDOM: %s leaves its start area for %s", bot.GetName().c_str(),
         capital.Map == Stormwind.Map ? "Stormwind" : "Orgrimmar");
     return true;
+}
+
+bool RandomPlayerbotProgression::SkipsStartArea(uint8_t race, uint8_t playerClass)
+{
+    return playerClass == CLASS_DEATH_KNIGHT || race == RACE_WORGEN || race == RACE_GOBLIN;
+}
+
+void RandomPlayerbotProgression::PlaceInCapital(uint32_t guidLow)
+{
+    QueryResult result = CharacterDatabase.PQuery("SELECT race, class FROM characters WHERE guid = %u", guidLow);
+    if (!result)
+        return;
+    uint8 race = (*result)[0].GetUInt8();
+    if (!SkipsStartArea(race, (*result)[1].GetUInt8()))
+        return;
+    Capital const& capital = Player::TeamForRace(race) == ALLIANCE ? Stormwind : Orgrimmar;
+    uint32 zoneId = 0, areaId = 0;
+    sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
+        capital.Y, capital.Z);
+    CharacterDatabase.DirectPExecute("UPDATE characters SET map = %u, zone = %u, position_x = %f, position_y = %f, "
+        "position_z = %f, orientation = %f, instance_id = 0 WHERE guid = %u", capital.Map, zoneId, capital.X, capital.Y,
+        capital.Z, capital.O, guidLow);
+    CharacterDatabase.DirectPExecute("UPDATE character_homebind SET mapId = %u, zoneId = %u, posX = %f, posY = %f, "
+        "posZ = %f WHERE guid = %u", capital.Map, areaId, capital.X, capital.Y, capital.Z, guidLow);
+}
+
+void RandomPlayerbotProgression::CompleteStartChain(Player& bot)
+{
+    if (!SkipsStartArea(bot.getRace(), bot.getClass()))
+        return;
+    if (bot.getClass() == CLASS_DEATH_KNIGHT && !bot.HasSpell(DeathGate))
+        bot.LearnSpell(DeathGate, false);
+    auto chained = [&bot](int32 sort)
+    {
+        if (bot.getClass() == CLASS_DEATH_KNIGHT && sort == DeathKnightQuests)
+            return true;
+        if (bot.getRace() == RACE_GOBLIN)
+            return std::find(std::begin(GoblinStartZones), std::end(GoblinStartZones), sort) != std::end(GoblinStartZones);
+        if (bot.getRace() == RACE_WORGEN)
+            return std::find(std::begin(WorgenStartZones), std::end(WorgenStartZones), sort) != std::end(WorgenStartZones);
+        return false;
+    };
+    for (auto const& [id, quest] : sObjectMgr->GetQuestTemplates())
+    {
+        if (!chained(quest.GetZoneOrSort()) || bot.GetQuestStatus(id) == QUEST_STATUS_REWARDED ||
+            (quest.GetAllowableRaces() && !(quest.GetAllowableRaces() & bot.getRaceMask())) ||
+            (quest.GetAllowableClasses() && !(quest.GetAllowableClasses() & bot.getClassMask())))
+            continue;
+        uint16 slot = bot.FindQuestSlot(id);
+        if (slot < MAX_QUEST_LOG_SIZE)
+            bot.SetQuestSlot(slot, 0);
+        if (bot.GetQuestStatus(id) != QUEST_STATUS_NONE)
+            bot.RemoveActiveQuest(id, false);
+        bot.SetRewardedQuest(id);
+    }
 }

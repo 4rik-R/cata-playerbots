@@ -112,6 +112,8 @@ namespace
                 case State::Succeeded:
                     slot.GuidLow = slot.Receipt->GetCharacterGuidLow();
                     slot.Receipt.reset();
+                    // Death knights, Worgen and Goblins first log in at their capital.
+                    RandomPlayerbotProgression::PlaceInCapital(slot.GuidLow);
                     return;
                 default:
                     // Name taken, accounting failed or abandoned: re-read the account next interval.
