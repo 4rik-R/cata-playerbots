@@ -91,7 +91,7 @@ std::unordered_map<uint32, std::vector<uint32>> OpenSpells;
 std::vector<Giver> Givers;
 std::vector<std::vector<uint32>> GiversByLevel; // level -> index into Givers
 uint32 VerdictCounts[5] = {};
-std::atomic<uint32> ActivityCounts[5] = {};
+std::atomic<uint32> ActivityCounts[6] = {};
 
 // Flight masters in the open world and the taxi node each serves.
 struct Master
@@ -1591,6 +1591,24 @@ bool RandomPlayerbotQuests::FinishFailedTrip(Player& bot, BotState& state)
         return false;
     ++TeleportCount;
     return true;
+}
+
+void RandomPlayerbotQuests::Track(BotState& state, Activity activity)
+{
+    SetActivity(state, activity);
+}
+
+uint32_t RandomPlayerbotQuests::ActiveBots()
+{
+    uint32 total = 0;
+    for (std::atomic<uint32> const& count : ActivityCounts)
+        total += count.load();
+    return total - ActivityCounts[uint8(Activity::None)].load();
+}
+
+uint32_t RandomPlayerbotQuests::CountOf(Activity activity)
+{
+    return ActivityCounts[uint8(activity)].load();
 }
 
 std::string RandomPlayerbotQuests::Describe()

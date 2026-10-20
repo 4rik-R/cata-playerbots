@@ -28,6 +28,7 @@
 #include "TerrainMgr.h"
 #include "Timer.h"
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -70,6 +71,9 @@ constexpr int32 WorgenStartZones[] = { 4714, 4755 };
 struct Capital { uint32 Map; float X, Y, Z, O; };
 constexpr Capital Stormwind = { 0, -8833.07f, 622.778f, 93.9317f, 0.6771f };
 constexpr Capital Orgrimmar = { 1, 1569.97f, -4397.41f, 16.0472f, 0.543025f };
+// Their zones, and the areas (Trade District, Valley of Strength) the entrances lie in.
+constexpr uint32 StormwindZone = 1519, StormwindArea = 5148;
+constexpr uint32 OrgrimmarZone = 1637, OrgrimmarArea = 5170;
 
 struct Spawn
 {
@@ -829,13 +833,30 @@ bool RandomPlayerbotProgression::InPhasedStart(Player const& bot)
     return std::find(std::begin(PhasedStartMaps), std::end(PhasedStartMaps), bot.GetMapId()) != std::end(PhasedStartMaps);
 }
 
+void RandomPlayerbotProgression::BindInCapital(Player& bot)
+{
+    Capital const& capital = bot.GetTeamId() == TEAM_ALLIANCE ? Stormwind : Orgrimmar;
+    if (bot.m_homebindMapId == capital.Map && std::abs(bot.m_homebindX - capital.X) < 1.0f &&
+        std::abs(bot.m_homebindY - capital.Y) < 1.0f)
+        return;
+    bot.SetHomebind(WorldLocation(capital.Map, capital.X, capital.Y, capital.Z, capital.O),
+        bot.GetTeamId() == TEAM_ALLIANCE ? StormwindArea : OrgrimmarArea);
+}
+
+uint32_t RandomPlayerbotProgression::CapitalZone(Player const& bot)
+{
+    return bot.GetTeamId() == TEAM_ALLIANCE ? StormwindZone : OrgrimmarZone;
+}
+
+void RandomPlayerbotProgression::Resupply(Player& bot)
+{
+    Restock(bot);
+}
+
 bool RandomPlayerbotProgression::MoveToCapital(Player& bot)
 {
     Capital const& capital = bot.GetTeamId() == TEAM_ALLIANCE ? Stormwind : Orgrimmar;
-    uint32 zoneId = 0, areaId = 0;
-    sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
-        capital.Y, capital.Z);
-    bot.SetHomebind(WorldLocation(capital.Map, capital.X, capital.Y, capital.Z, capital.O), areaId);
+    BindInCapital(bot);
     CompleteStartChain(bot);
     if (!bot.TeleportTo(capital.Map, capital.X, capital.Y, capital.Z, capital.O))
         return false;

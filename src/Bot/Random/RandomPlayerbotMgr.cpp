@@ -5,6 +5,7 @@
  * Released under GNU GPL v2 or any later version.
  */
 #include "RandomPlayerbotMgr.h"
+#include "RandomPlayerbotCapital.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotProgression.h"
 #include "RandomPlayerbotQuests.h"
@@ -313,7 +314,10 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
     if (RandomPlayerbotProgression::GetSettings().Enabled)
         RandomPlayerbotProgression::BuildIndexes();
     if (RandomPlayerbotQuests::Enabled())
+    {
         RandomPlayerbotQuests::BuildIndex();
+        RandomPlayerbotCapital::BuildIndex();
+    }
 
     if (Slots.size() > Settings.Count)
         StopAll(Settings.Count);
@@ -385,7 +389,7 @@ std::string RandomPlayerbotMgr::Describe()
         ", levels " + (RandomPlayerbotProgression::GetSettings().Enabled ?
             std::to_string(RandomPlayerbotProgression::GetSettings().MinLevel) + "-" +
             std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) +
-        ", " + RandomPlayerbotQuests::Describe() + ".";
+        ", " + RandomPlayerbotQuests::Describe() + "; " + RandomPlayerbotCapital::Describe() + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)

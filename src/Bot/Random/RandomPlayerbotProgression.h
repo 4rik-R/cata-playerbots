@@ -42,6 +42,12 @@ bool Relocate(Player& bot, RandomPlayerbotQuests::BotState* journey = nullptr);
 bool InPhasedStart(Player const& bot);
 // Binds the bot in Stormwind or Orgrimmar and starts the teleport there.
 bool MoveToCapital(Player& bot);
+// Binds the bot at the entrance of Stormwind or Orgrimmar, where its hearthstone brings it.
+void BindInCapital(Player& bot);
+// Stormwind City for the Alliance, Orgrimmar for the Horde.
+uint32_t CapitalZone(Player const& bot);
+// Bags, food and drink as a vendor would sell them.
+void Resupply(Player& bot);
 // Death knights, Worgen and Goblins skip Acherus, Gilneas and Kezan.
 bool SkipsStartArea(uint8_t race, uint8_t playerClass);
 // Puts a new character that never logged in at its capital entrance and binds it there (synchronous).
