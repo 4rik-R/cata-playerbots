@@ -29,7 +29,8 @@ inline char const* FallbackValue(std::uint8_t playerClass, std::uint32_t talentT
         case CLASS_MAGE: return mageEnabled ? "dps target" : nullptr;
         case CLASS_PRIEST: return priestEnabled ? "dps target" : nullptr;
         case CLASS_ROGUE: case CLASS_HUNTER: case CLASS_WARLOCK:
-        case CLASS_PALADIN: case CLASS_SHAMAN: case CLASS_DRUID: return "dps target"; // class tables
+        case CLASS_PALADIN: case CLASS_SHAMAN: case CLASS_DRUID:
+        case CLASS_DEATH_KNIGHT: return "dps target"; // class tables
         default: return nullptr;
     }
 }

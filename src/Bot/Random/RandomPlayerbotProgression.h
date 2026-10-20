@@ -36,6 +36,10 @@ void ApplyLevelUp(Player& bot, uint32_t previousLevel);
 bool InFittingZone(Player& bot);
 // Starts a teleport to a fitting grind spot; false when none was found.
 bool Relocate(Player& bot);
+// Death knights, Worgen and Goblins are created in Acherus, Gilneas or Kezan.
+bool InPhasedStart(Player const& bot);
+// Binds the bot in Stormwind or Orgrimmar and starts the teleport there.
+bool MoveToCapital(Player& bot);
 }
 
 #endif

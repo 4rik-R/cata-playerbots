@@ -1,6 +1,6 @@
 /*
- * Table-driven combat for rogues, hunters, warlocks, paladins, shamans and
- * druids, adapted from the generic strategies of mod-playerbots at d750b4b. See AUTHORS.md and
+ * Table-driven combat for rogues, hunters, warlocks, paladins, shamans,
+ * druids and death knights, adapted from the generic strategies of mod-playerbots at d750b4b. See AUTHORS.md and
  * PORTING.md. Released under GNU GPL v2 or any later version.
  */
 #include "PlayerbotClassRotation.h"
@@ -278,7 +278,8 @@ void PlayerbotClassRotation::ValidateSpells()
         { ClassPaladin, TreePaladinProtection, false }, { ClassPaladin, TreePaladinRetribution, false },
         { ClassShaman, TreeShamanElemental, false }, { ClassShaman, TreeShamanEnhancement, false },
         { ClassShaman, TreeShamanRestoration, false }, { ClassDruid, TreeDruidBalance, false },
-        { ClassDruid, TreeDruidFeral, true } })
+        { ClassDruid, TreeDruidFeral, true }, { ClassDeathKnight, TreeDeathKnightBlood, false },
+        { ClassDeathKnight, TreeDeathKnightFrost, false }, { ClassDeathKnight, TreeDeathKnightUnholy, false } })
     {
         for (Step const& step : CombatSteps(spec.Class, spec.Tree, spec.CatForm))
             check(step.SpellId, step.Name);

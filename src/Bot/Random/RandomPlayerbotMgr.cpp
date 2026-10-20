@@ -48,6 +48,7 @@ namespace
     bool ResetPending = false;
     bool ResumeAfterReset = false;
     bool GateWarningLogged = false;
+    bool DeathKnightWarningLogged = false;
     uint32 LastOnline = 0;
     uint32 LastProvisioning = 0;
 
@@ -130,9 +131,20 @@ namespace
         if (provisioning >= MaxProvisioningInFlight || sWorld->IsCharacterProvisioningAccount(slot.AccountId))
             return;
 
+        // Native creation refuses death knights on an account without a level 55 character
+        // unless CharacterCreating.MinLevelForDeathKnight is 0.
+        uint32 classMask = Settings.ClassMask;
+        if (sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_MIN_LEVEL_FOR_DEATH_KNIGHT))
+        {
+            classMask = RandomPlayerbotClassesWithout(classMask, RandomPlayerbotDeathKnight);
+            if (!DeathKnightWarningLogged)
+                TC_LOG_INFO("module.playerbots", "Random playerbots: no death knights while "
+                    "CharacterCreating.MinLevelForDeathKnight is above 0.");
+            DeathKnightWarningLogged = true;
+        }
         for (uint32 attempt = 0; attempt < MaxNameAttempts; ++attempt)
         {
-            RandomPlayerbotProfile profile = RollRandomPlayerbotProfile(Settings.AllianceRatio, Roll, Settings.ClassMask);
+            RandomPlayerbotProfile profile = RollRandomPlayerbotProfile(Settings.AllianceRatio, Roll, classMask);
             std::string failure;
             auto appearance = RandomPlayerbotFactory::PreviewAppearance(profile.Race, profile.Class, profile.Gender, failure);
             if (!appearance)

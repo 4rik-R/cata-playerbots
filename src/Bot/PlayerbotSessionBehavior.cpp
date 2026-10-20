@@ -1782,8 +1782,10 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
     if (!_progressChecked)
     {
         _progressChecked = true;
-        uint32 target = RandomPlayerbotLevels::TargetLevel(bot->GetGUID().GetCounter(), settings.MinLevel, settings.MaxLevel);
-        if (!bot->GetGroup() && RandomPlayerbotLevels::NeedsInitialization(level, target))
+        uint32 target = RandomPlayerbotLevels::TargetLevelFor(bot->GetGUID().GetCounter(), bot->getRace(),
+            bot->getClass(), settings.MinLevel, settings.MaxLevel);
+        if (!bot->GetGroup() && RandomPlayerbotLevels::NeedsInitialization(level, target,
+            RandomPlayerbotLevels::MinimumLevel(bot->getRace(), bot->getClass())))
         {
             RandomPlayerbotProgression::Initialize(*bot, target);
             _progressRelocateMs = 0; // place it right away
@@ -1796,6 +1798,22 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         if (level > _progressLevel)
             RandomPlayerbotProgression::ApplyLevelUp(*bot, _progressLevel);
         _progressLevel = level;
+    }
+
+    // Death knights, Worgen and Goblins leave Acherus, Gilneas and Kezan for their capital first.
+    if (!bot->GetGroup() && level > RandomPlayerbotLevels::StartZoneLevel &&
+        RandomPlayerbotProgression::InPhasedStart(*bot))
+    {
+        if (_progressRelocateMs && getMSTimeDiff(_progressRelocateMs, now) < 60000)
+            return;
+        _progressRelocateMs = now ? now : 1;
+        if (RandomPlayerbotProgression::MoveToCapital(*bot))
+        {
+            _progressFarTeleport = bot->IsBeingTeleportedFar();
+            _soloHomeReset = true;
+            _progressRelocateMs = 0; // move on to a grind spot once there
+        }
+        return;
     }
 
     // Only ungrouped grinders move; start-zone levels stay where they were created.

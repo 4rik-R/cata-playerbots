@@ -2,15 +2,17 @@
  * Priority tables for classes without a full strategy context, following the
  * shape of mod-playerbots' generic DPS strategies (RogueAiObjectContext,
  * HunterAiObjectContext, WarlockAiObjectContext, PaladinAiObjectContext,
- * ShamanAiObjectContext, DruidAiObjectContext) at d750b4b. Spell ids are
- * Cataclysm 4.3.4: each is a trainer_spell row of TDB 434.22011 or a native
- * starting spell. See AUTHORS.md and PORTING.md.
+ * ShamanAiObjectContext, DruidAiObjectContext, DKAiObjectContext) at d750b4b.
+ * Spell ids are Cataclysm 4.3.4: each is a trainer_spell row of TDB 434.22011,
+ * a specialization spell or a native starting spell. See AUTHORS.md and PORTING.md.
  * Released under GNU GPL v2 or any later version.
  */
 #ifndef PLAYERBOT_CLASS_ROTATION_DATA_H
 #define PLAYERBOT_CLASS_ROTATION_DATA_H
 
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <span>
 
 namespace PlayerbotClassRotation
@@ -184,6 +186,48 @@ constexpr Step DruidCat[] = {
     { 1082, "Claw", When::Always, Target::Enemy },
 };
 
+// Death knights: diseases first, then the spec's strike; Death Coil or Frost
+// Strike spends runic power. Steps without runes or power fail and fall through.
+constexpr Step DeathKnightBlood[] = {
+    { 47528, "Mind Freeze", When::TargetCasting, Target::Enemy },
+    { 48792, "Icebound Fortitude", When::SelfBelow35, Target::Self },
+    { 56222, "Dark Command", When::TargetNotOnMe, Target::Enemy },
+    { 49576, "Death Grip", When::TargetNotOnMe, Target::Enemy },
+    { 45477, "Icy Touch", When::MyDotMissing, Target::Enemy, 55095 },
+    { 45462, "Plague Strike", When::MyDotMissing, Target::Enemy, 55078 },
+    // Blood spends frost and unholy runes on Death Strike for its self-heal.
+    { 49998, "Death Strike", When::InMelee, Target::Enemy },
+    { 55050, "Heart Strike", When::InMelee, Target::Enemy },
+    { 45902, "Blood Strike", When::InMelee, Target::Enemy, 0, 55050 },
+    { 56815, "Rune Strike", When::InMelee, Target::Enemy },
+    { 47541, "Death Coil", When::Always, Target::Enemy },
+};
+
+constexpr Step DeathKnightFrost[] = {
+    { 47528, "Mind Freeze", When::TargetCasting, Target::Enemy },
+    { 48792, "Icebound Fortitude", When::SelfBelow35, Target::Self },
+    { 49998, "Death Strike", When::SelfBelow40, Target::Enemy },
+    { 45477, "Icy Touch", When::MyDotMissing, Target::Enemy, 55095 },
+    { 45462, "Plague Strike", When::MyDotMissing, Target::Enemy, 55078 },
+    { 49020, "Obliterate", When::InMelee, Target::Enemy },
+    { 49143, "Frost Strike", When::InMelee, Target::Enemy },
+    { 49184, "Howling Blast", When::Always, Target::Enemy },
+    { 45902, "Blood Strike", When::InMelee, Target::Enemy },
+    { 47541, "Death Coil", When::Always, Target::Enemy, 0, 49143 },
+};
+
+constexpr Step DeathKnightUnholy[] = {
+    { 47528, "Mind Freeze", When::TargetCasting, Target::Enemy },
+    { 48792, "Icebound Fortitude", When::SelfBelow35, Target::Self },
+    { 49998, "Death Strike", When::SelfBelow40, Target::Enemy },
+    { 45477, "Icy Touch", When::MyDotMissing, Target::Enemy, 55095 },
+    { 45462, "Plague Strike", When::MyDotMissing, Target::Enemy, 55078 },
+    { 55090, "Scourge Strike", When::InMelee, Target::Enemy },
+    { 85948, "Festering Strike", When::InMelee, Target::Enemy },
+    { 45902, "Blood Strike", When::InMelee, Target::Enemy, 0, 85948 },
+    { 47541, "Death Coil", When::Always, Target::Enemy },
+};
+
 // Out of combat, before the next pull.
 constexpr Step HunterUpkeep[] = {
     { 13165, "Aspect of the Hawk", When::SelfAuraMissing, Target::Self },
@@ -212,6 +256,24 @@ constexpr Step WarlockUpkeep[] = {
     { 687, "Demon Armor", When::SelfAuraMissing, Target::Self, 0, 28176 },
 };
 
+// Presence by spec; Frost Presence is known from the start.
+constexpr Step DeathKnightBloodUpkeep[] = {
+    { 48263, "Blood Presence", When::SelfAuraMissing, Target::Self },
+    { 48266, "Frost Presence", When::SelfAuraMissing, Target::Self, 0, 48263 },
+    { 57330, "Horn of Winter", When::SelfAuraMissing, Target::Self },
+};
+
+constexpr Step DeathKnightFrostUpkeep[] = {
+    { 48266, "Frost Presence", When::SelfAuraMissing, Target::Self },
+    { 57330, "Horn of Winter", When::SelfAuraMissing, Target::Self },
+};
+
+constexpr Step DeathKnightUnholyUpkeep[] = {
+    { 48265, "Unholy Presence", When::SelfAuraMissing, Target::Self },
+    { 48266, "Frost Presence", When::SelfAuraMissing, Target::Self, 0, 48265 },
+    { 57330, "Horn of Winter", When::SelfAuraMissing, Target::Self },
+};
+
 // Pet summons, tried in order when the bot has no pet.
 constexpr uint32_t HunterCallPet = 883;
 constexpr uint32_t HunterRevivePet = 982;
@@ -223,20 +285,23 @@ constexpr uint32_t ShamanFlametongue = 8024;
 constexpr uint32_t DruidCatForm = 768;
 
 // Self buffs of one group replace each other, so any of them counts as worn.
-constexpr uint32_t ExclusiveSelfAuras[][2] = {
-    { 28176, 687 },   // Fel Armor, Demon Armor
-    { 31801, 20154 }, // Seal of Truth, Seal of Righteousness
-    { 7294, 465 },    // Retribution Aura, Devotion Aura
-    { 52127, 324 },   // Water Shield, Lightning Shield
+// Unused places are 0.
+constexpr uint32_t ExclusiveSelfAuras[][3] = {
+    { 28176, 687 },          // Fel Armor, Demon Armor
+    { 31801, 20154 },        // Seal of Truth, Seal of Righteousness
+    { 7294, 465 },           // Retribution Aura, Devotion Aura
+    { 52127, 324 },          // Water Shield, Lightning Shield
+    { 48263, 48266, 48265 }, // Blood, Frost and Unholy Presence
 };
 
-constexpr uint8_t ClassPaladin = 2, ClassHunter = 3, ClassRogue = 4, ClassShaman = 7, ClassWarlock = 9,
-    ClassDruid = 11;
+constexpr uint8_t ClassPaladin = 2, ClassHunter = 3, ClassRogue = 4, ClassDeathKnight = 6, ClassShaman = 7,
+    ClassWarlock = 9, ClassDruid = 11;
 
 // Talent tree ids (TalentTab.dbc, 4.3.4); 0 is "no tree chosen yet".
 constexpr uint32_t TreePaladinHoly = 831, TreePaladinProtection = 839, TreePaladinRetribution = 855;
 constexpr uint32_t TreeShamanElemental = 261, TreeShamanEnhancement = 263, TreeShamanRestoration = 262;
 constexpr uint32_t TreeDruidBalance = 752, TreeDruidFeral = 750, TreeDruidRestoration = 748;
+constexpr uint32_t TreeDeathKnightBlood = 398, TreeDeathKnightFrost = 399, TreeDeathKnightUnholy = 400;
 
 // catForm: the druid already knows Cat Form; Feral fights as a caster before that.
 inline std::span<Step const> CombatSteps(uint8_t playerClass, uint32_t tree = 0, bool catForm = false)
@@ -253,6 +318,9 @@ inline std::span<Step const> CombatSteps(uint8_t playerClass, uint32_t tree = 0,
             return tree == TreeShamanEnhancement ? std::span<Step const>(ShamanEnhancement) : std::span<Step const>(ShamanCaster);
         case ClassDruid:
             return tree == TreeDruidFeral && catForm ? std::span<Step const>(DruidCat) : std::span<Step const>(DruidCaster);
+        case ClassDeathKnight:
+            return tree == TreeDeathKnightBlood ? std::span<Step const>(DeathKnightBlood) :
+                tree == TreeDeathKnightUnholy ? std::span<Step const>(DeathKnightUnholy) : std::span<Step const>(DeathKnightFrost);
         default: return {};
     }
 }
@@ -266,6 +334,10 @@ inline std::span<Step const> UpkeepSteps(uint8_t playerClass, uint32_t tree = 0)
         case ClassPaladin: return PaladinUpkeep;
         case ClassShaman:
             return tree == TreeShamanRestoration ? std::span<Step const>(ShamanRestorationUpkeep) : std::span<Step const>(ShamanUpkeep);
+        case ClassDeathKnight:
+            return tree == TreeDeathKnightBlood ? std::span<Step const>(DeathKnightBloodUpkeep) :
+                tree == TreeDeathKnightUnholy ? std::span<Step const>(DeathKnightUnholyUpkeep) :
+                std::span<Step const>(DeathKnightFrostUpkeep);
         default: return {};
     }
 }
@@ -286,10 +358,17 @@ inline bool HasPet(uint8_t playerClass) { return playerClass == ClassHunter || p
 // Spell is a member of an exclusive self-buff group; the group's spells, or none.
 inline std::span<uint32_t const> ExclusiveGroup(uint32_t spellId)
 {
+    if (!spellId)
+        return {};
     for (auto const& group : ExclusiveSelfAuras)
         for (uint32_t member : group)
             if (member == spellId)
-                return group;
+            {
+                std::size_t size = 0;
+                while (size < std::size(group) && group[size])
+                    ++size;
+                return std::span<uint32_t const>(group, size);
+            }
     return {};
 }
 

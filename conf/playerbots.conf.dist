@@ -339,9 +339,11 @@ Playerbots.Random.Enabled = 0
 #    Playerbots.Random.IntervalSeconds   Manager pass interval (1-600). Default 20.
 #    Playerbots.Random.AllianceRatio     Percent of new characters that are Alliance. Default 50.
 #    Playerbots.Random.Classes           Class ids new characters may roll, comma separated:
-#                                        1 Warrior, 2 Paladin, 3 Hunter, 4 Rogue, 5 Priest, 7 Shaman,
-#                                        8 Mage, 9 Warlock, 11 Druid.
+#                                        1 Warrior, 2 Paladin, 3 Hunter, 4 Rogue, 5 Priest, 6 Death Knight,
+#                                        7 Shaman, 8 Mage, 9 Warlock, 11 Druid.
 #                                        Empty: all of them. Existing characters keep their class.
+#                                        Death knights need CharacterCreating.MinLevelForDeathKnight = 0
+#                                        in worldserver.conf and are skipped otherwise.
 
 Playerbots.Random.Count = 50
 Playerbots.Random.AccountPrefix = "RNDBOT"
@@ -369,7 +371,10 @@ Playerbots.Random.Grind.Enabled = 0
 #                     85), bags, food/water, riding at 20 and some gold, then sent to
 #                     a grind spot in a levelling zone of its faction. Bots keep
 #                     levelling while grinding and move on when their zone no
-#                     longer fits. Requires Playerbots.Random.Enabled.
+#                     longer fits. Death knights start at 58 or higher, Worgen
+#                     and Goblins at 10 or higher; all three skip their phased
+#                     start areas, are bound in Stormwind or Orgrimmar and move
+#                     on from there. Requires Playerbots.Random.Enabled.
 #        Default:     0 - (Disabled)
 #                     1 - (Enabled)
 #

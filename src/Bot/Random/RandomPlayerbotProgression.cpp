@@ -46,6 +46,14 @@ constexpr uint32 ApprenticeRiding = 33388;
 constexpr uint32 AllianceMount = 458;  // Brown Horse
 constexpr uint32 HordeMount = 580;     // Timber Wolf
 constexpr uint32 RandomSuffixTries = 12;
+// Runeforging is taught by an Acherus quest; the bot's weapon gets this rune directly.
+constexpr uint32 RuneOfTheFallenCrusader = 53344;
+// Maps of the phased start areas: Acherus, Kezan and the Lost Isles, Gilneas.
+constexpr uint32 PhasedStartMaps[] = { 609, 648, 654 };
+// Capital entrances (game_tele Stormwind and Orgrimmar) where these bots are bound.
+struct Capital { uint32 Map; float X, Y, Z, O; };
+constexpr Capital Stormwind = { 0, -8833.07f, 622.778f, 93.9317f, 0.6771f };
+constexpr Capital Orgrimmar = { 1, 1569.97f, -4397.41f, 16.0472f, 0.543025f };
 
 struct Spawn
 {
@@ -92,6 +100,8 @@ Role RoleOf(Player const& bot)
     {
         case CLASS_WARRIOR: return tab == 2 ? Role::Tank : Role::Melee;
         case CLASS_PRIEST: return Role::Healer;
+        // Blood tanks with a two-hander: death knights cannot wear a shield.
+        case CLASS_DEATH_KNIGHT: return tab == 0 ? Role::Tank : Role::Melee;
         // Tab order is the talent tree order of TalentTab.dbc.
         case CLASS_PALADIN: return tab == 0 ? Role::Healer : tab == 1 ? Role::Tank : Role::Melee;
         case CLASS_SHAMAN: return tab == 0 ? Role::Caster : tab == 1 ? Role::Agile : Role::Healer;
@@ -445,7 +455,7 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
         { EQUIPMENT_SLOT_FINGER2, { INVTYPE_FINGER }, { ITEM_SUBCLASS_ARMOR_MISCELLANEOUS } },
         { EQUIPMENT_SLOT_BACK, { INVTYPE_CLOAK }, { ITEM_SUBCLASS_ARMOR_CLOTH } },
     };
-    if (role == Role::Tank)
+    if (role == Role::Tank && bot.getClass() != CLASS_DEATH_KNIGHT)
     {
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONMAINHAND },
             { ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_SWORD } });
@@ -474,7 +484,7 @@ std::vector<SlotRule> SlotRules(Player const& bot, Role role)
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_WEAPON, INVTYPE_WEAPONMAINHAND }, oneHanders });
         rules.push_back({ EQUIPMENT_SLOT_OFFHAND, { INVTYPE_SHIELD }, { ITEM_SUBCLASS_ARMOR_SHIELD } });
     }
-    else if (role == Role::Melee || role == Role::Agile)
+    else if (role == Role::Melee || role == Role::Agile || role == Role::Tank)
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON }, TwoHanders(bot.getClass()) });
     else
         rules.push_back({ EQUIPMENT_SLOT_MAINHAND, { INVTYPE_2HWEAPON }, { ITEM_SUBCLASS_WEAPON_STAFF } });
@@ -539,6 +549,31 @@ bool EquipFresh(Player& bot, uint8 slot, ItemTemplate const& proto, Role role)
     return bot.EquipItem(dest, item, true) != nullptr;
 }
 
+// The enchantment Rune of the Fallen Crusader puts on a weapon, from its spell data.
+uint32 FallenCrusaderEnchantment()
+{
+    SpellInfo const* spell = sSpellMgr->GetSpellInfo(RuneOfTheFallenCrusader);
+    if (!spell)
+        return 0;
+    for (SpellEffectInfo const& effect : spell->Effects)
+        if (effect.Effect == SPELL_EFFECT_ENCHANT_ITEM && effect.MiscValue > 0)
+            return uint32(effect.MiscValue);
+    return 0;
+}
+
+void ApplyWeaponRune(Player& bot)
+{
+    if (bot.getClass() != CLASS_DEATH_KNIGHT)
+        return;
+    Item* weapon = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    uint32 enchantment = FallenCrusaderEnchantment();
+    if (!weapon || !enchantment || weapon->GetEnchantmentId(PERM_ENCHANTMENT_SLOT) == enchantment)
+        return;
+    bot.ApplyEnchantment(weapon, PERM_ENCHANTMENT_SLOT, false);
+    weapon->SetEnchantment(PERM_ENCHANTMENT_SLOT, enchantment, 0, 0, bot.GetGUID());
+    bot.ApplyEnchantment(weapon, PERM_ENCHANTMENT_SLOT, true);
+}
+
 void EquipForLevel(Player& bot)
 {
     Role role = RoleOf(bot);
@@ -559,6 +594,7 @@ void EquipForLevel(Player& bot)
         else
             ++missing;
     }
+    ApplyWeaponRune(bot);
     TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: %s level %u equipped %u slots, %u without a fitting item",
         bot.GetName().c_str(), bot.getLevel(), equipped, missing);
 }
@@ -712,4 +748,23 @@ bool RandomPlayerbotProgression::Relocate(Player& bot)
     }
     TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: %s level %u found no grind spot", bot.GetName().c_str(), level);
     return false;
+}
+
+bool RandomPlayerbotProgression::InPhasedStart(Player const& bot)
+{
+    return std::find(std::begin(PhasedStartMaps), std::end(PhasedStartMaps), bot.GetMapId()) != std::end(PhasedStartMaps);
+}
+
+bool RandomPlayerbotProgression::MoveToCapital(Player& bot)
+{
+    Capital const& capital = bot.GetTeamId() == TEAM_ALLIANCE ? Stormwind : Orgrimmar;
+    uint32 zoneId = 0, areaId = 0;
+    sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
+        capital.Y, capital.Z);
+    bot.SetHomebind(WorldLocation(capital.Map, capital.X, capital.Y, capital.Z, capital.O), areaId);
+    if (!bot.TeleportTo(capital.Map, capital.X, capital.Y, capital.Z, capital.O))
+        return false;
+    TC_LOG_INFO("module.playerbots", "PB-RANDOM: %s leaves its start area for %s", bot.GetName().c_str(),
+        capital.Map == Stormwind.Map ? "Stormwind" : "Orgrimmar");
+    return true;
 }

@@ -20,6 +20,12 @@ constexpr uint32_t StartZoneLevel = 5;
 constexpr uint32_t InitializedLevel = 6;
 // Zones stay valid a little past their range so a level-up does not move a bot at once.
 constexpr uint32_t ZoneLevelSlack = 2;
+// Death knights skip Acherus (native start 55); Worgen and Goblins skip Gilneas and Kezan.
+constexpr uint32_t DeathKnightLevel = 58;
+constexpr uint32_t PhasedRaceLevel = 10;
+constexpr uint8_t ClassDeathKnight = 6;
+constexpr uint8_t RaceGoblin = 9;
+constexpr uint8_t RaceWorgen = 22;
 
 enum TeamMask : uint8_t { Alliance = 1, Horde = 2, Both = 3 };
 
@@ -97,9 +103,32 @@ inline uint32_t TargetLevel(uint32_t guidLow, uint32_t minLevel, uint32_t maxLev
     return minLevel + h % (maxLevel - minLevel + 1);
 }
 
-inline bool NeedsInitialization(uint32_t level, uint32_t target)
+// Bots of these start in a phased area and are moved to their capital once set up.
+inline bool StartsPhased(uint8_t race, uint8_t playerClass)
 {
-    return level < InitializedLevel && level < target;
+    return playerClass == ClassDeathKnight || race == RaceWorgen || race == RaceGoblin;
+}
+
+// Lowest level a bot of this race and class is set up at.
+inline uint32_t MinimumLevel(uint8_t race, uint8_t playerClass)
+{
+    if (playerClass == ClassDeathKnight)
+        return DeathKnightLevel;
+    return race == RaceWorgen || race == RaceGoblin ? PhasedRaceLevel : 1;
+}
+
+// TargetLevel within the configured range, raised to the race and class minimum.
+inline uint32_t TargetLevelFor(uint32_t guidLow, uint8_t race, uint8_t playerClass, uint32_t minLevel, uint32_t maxLevel)
+{
+    uint32_t floor = MinimumLevel(race, playerClass);
+    minLevel = std::max(minLevel, floor);
+    return TargetLevel(guidLow, minLevel, std::max(maxLevel, minLevel));
+}
+
+// minimum: MinimumLevel of the bot; a death knight starts at 55, above InitializedLevel.
+inline bool NeedsInitialization(uint32_t level, uint32_t target, uint32_t minimum = 1)
+{
+    return (level < InitializedLevel && level < target) || level < minimum;
 }
 
 // Mob levels a bot of this level is sent to: same band the grind target uses.
