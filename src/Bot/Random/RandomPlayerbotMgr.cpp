@@ -17,6 +17,7 @@
 #include "Random.h"
 #include "World.h"
 #include "WorldSession.h"
+#include "Player.h"
 #include <memory>
 #include <shared_mutex>
 #include <unordered_set>
@@ -44,6 +45,8 @@ namespace
     std::vector<RandomBotSlot> Slots;
     uint32 Timer = 0;
     bool Paused = false;
+    bool ResetPending = false;
+    bool ResumeAfterReset = false;
     bool GateWarningLogged = false;
     uint32 LastOnline = 0;
     uint32 LastProvisioning = 0;
@@ -158,6 +161,79 @@ namespace
     }
 }
 
+namespace
+{
+    // Prefix plus digits only, so accounts that merely start with the prefix are never touched.
+    bool IsRandomAccountName(std::string const& name)
+    {
+        std::string const& prefix = Settings.AccountPrefix;
+        if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0)
+            return false;
+        for (std::size_t i = prefix.size(); i < name.size(); ++i)
+            if (name[i] < '0' || name[i] > '9')
+                return false;
+        return true;
+    }
+
+    // Runs once every random bot has logged out. Uses the native permanent delete,
+    // which also removes items, pets, mail and the character cache entry.
+    void FinishReset()
+    {
+        uint32 deleted = 0, accounts = 0;
+        QueryResult result = LoginDatabase.PQuery("SELECT id, username FROM account WHERE username LIKE '%s%%'",
+            Settings.AccountPrefix.c_str());
+        if (result)
+        {
+            do
+            {
+                uint32 accountId = (*result)[0].GetUInt32();
+                if (!IsRandomAccountName((*result)[1].GetString()))
+                    continue;
+                ++accounts;
+                QueryResult characters = CharacterDatabase.PQuery("SELECT guid FROM characters WHERE account=%u", accountId);
+                if (!characters)
+                    continue;
+                do
+                {
+                    ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>((*characters)[0].GetUInt32());
+                    Player::DeleteFromDB(guid, accountId, true, true);
+                    ++deleted;
+                } while (characters->NextRow());
+            } while (result->NextRow());
+        }
+        // The deletes commit asynchronously; wait two passes before re-reading the accounts.
+        for (RandomBotSlot& slot : Slots)
+        {
+            slot = RandomBotSlot{};
+            slot.SkipIntervals = 2;
+        }
+        ResetPending = false;
+        Paused = !ResumeAfterReset;
+        TC_LOG_INFO("server.worldserver", "Random playerbots: deleted %u characters on %u %s accounts; new ones are created on the next passes.",
+            deleted, accounts, Settings.AccountPrefix.c_str());
+    }
+
+    bool AnyRandomBotOnline()
+    {
+        for (RandomBotSlot const& slot : Slots)
+            if ((slot.GuidLow && sWorld->FindServerOriginPlayerbot(ObjectGuid::Create<HighGuid::Player>(slot.GuidLow))) ||
+                (slot.AccountId && sWorld->FindSession(slot.AccountId)) || (slot.Receipt &&
+                (slot.Receipt->GetState() == NativeCharacterCreationReceipt::State::Pending ||
+                 slot.Receipt->GetState() == NativeCharacterCreationReceipt::State::Reconciling)))
+                return true;
+        return false;
+    }
+}
+
+void RandomPlayerbotMgr::RequestReset()
+{
+    ResumeAfterReset = !Paused;
+    ResetPending = true;
+    Paused = true;
+    StopAll(0);
+    Timer = Settings.IntervalMs;
+}
+
 void RandomPlayerbotMgr::Configure(RandomPlayerbotSettings const& settings)
 {
     Settings = ClampRandomPlayerbotSettings(settings);
@@ -176,6 +252,11 @@ void RandomPlayerbotMgr::Configure(RandomPlayerbotSettings const& settings)
 
 void RandomPlayerbotMgr::SetPaused(bool paused)
 {
+    if (ResetPending)
+    {
+        ResumeAfterReset = !paused; // applies once the reset is done
+        return;
+    }
     Paused = paused;
     if (paused)
         StopAll(0);
@@ -191,7 +272,17 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
     if (Timer < Settings.IntervalMs)
         return;
     Timer = 0;
-    if (Paused || sWorld->IsStopped() || sWorld->IsShuttingDown())
+    if (sWorld->IsStopped() || sWorld->IsShuttingDown())
+        return;
+    if (ResetPending)
+    {
+        if (AnyRandomBotOnline())
+            StopAll(0);
+        else
+            FinishReset();
+        return;
+    }
+    if (Paused)
         return;
     // Server-origin admission is gated by the managed (or dev) switch in the core.
     if (!sWorld->getBoolConfig(CONFIG_PLAYERBOTS_MANAGED_ENABLED) && !sWorld->getBoolConfig(CONFIG_PLAYERBOTS_DEV_ENABLED))
@@ -264,7 +355,7 @@ std::string RandomPlayerbotMgr::Describe()
         characters += slot.GuidLow ? 1 : 0;
         failing += slot.Failures ? 1 : 0;
     }
-    std::string state = !Settings.Enabled ? "disabled" : Paused ? "paused" : "running";
+    std::string state = !Settings.Enabled ? "disabled" : ResetPending ? "resetting" : Paused ? "paused" : "running";
     return "Random playerbots " + state + ": target " + std::to_string(Settings.Count) +
         ", accounts " + std::to_string(accounts) + ", characters " + std::to_string(characters) +
         ", creating " + std::to_string(LastProvisioning) + ", online " + std::to_string(LastOnline) +

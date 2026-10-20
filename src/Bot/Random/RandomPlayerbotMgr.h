@@ -20,6 +20,9 @@ public:
     static void Update(uint32_t diff);
     // Console controls: pause stops every random bot and halts admission until resumed.
     static void SetPaused(bool paused);
+    // Logs every random bot out, then permanently deletes the characters on all
+    // prefix accounts (accounts stay) so the next passes create fresh ones.
+    static void RequestReset();
     static std::string Describe();
     // Any thread. True for accounts this manager created or adopted by name.
     static bool IsRandomAccount(uint32_t accountId);

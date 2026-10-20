@@ -582,13 +582,15 @@ public:
         std::istringstream input(args ? args : "");
         std::string action, extra;
         input >> action >> extra;
-        if (!extra.empty() || (action != "status" && action != "start" && action != "stop"))
+        if (!extra.empty() || (action != "status" && action != "start" && action != "stop" && action != "reset"))
         {
-            handler->SendSysMessage("Usage: server playerbotdev random <status|start|stop>");
+            handler->SendSysMessage("Usage: server playerbotdev random <status|start|stop|reset>");
             handler->SetSentErrorMessage(true);
             return false;
         }
-        if (action != "status")
+        if (action == "reset")
+            RandomPlayerbotMgr::RequestReset();
+        else if (action != "status")
             RandomPlayerbotMgr::SetPaused(action == "stop");
         handler->SendSysMessage(RandomPlayerbotMgr::Describe().c_str());
         return true;
