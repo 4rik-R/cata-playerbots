@@ -41,7 +41,7 @@ constexpr PlayerbotDecision::Action MageActions[] =
 
 void PlayerbotMage::LogKnownAbilities(Player const& bot)
 {
-    TC_LOG_INFO("module.playerbots", "PB-02: Mage level=%u Frost Nova=%u Fire Blast=%u Frostbolt=%u Fireball=%u",
+    TC_LOG_DEBUG("module.playerbots", "PB-02: Mage level=%u Frost Nova=%u Fire Blast=%u Frostbolt=%u Fireball=%u",
         bot.getLevel(), bot.HasSpell(122), bot.HasSpell(2136), bot.HasSpell(116), bot.HasSpell(133));
 }
 

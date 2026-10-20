@@ -18,6 +18,8 @@
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
+#include "Map.h"
+#include "Pet.h"
 #include "Player.h"
 #include "Random.h"
 #include "SpellInfo.h"
@@ -46,6 +48,11 @@ constexpr uint32 BlueGearMaxItemLevel = 346; // heroic Cataclysm dungeon level
 constexpr uint32 ApprenticeRiding = 33388;
 constexpr uint32 AllianceMount = 458;  // Brown Horse
 constexpr uint32 HordeMount = 580;     // Timber Wolf
+constexpr uint32 CallPetSpell = 883;
+constexpr uint32 TameBeast = 1515;
+// Plain beasts every hunter can tame: Young Wolf, Prairie Wolf, Dire Mottled Boar, Ice Claw Bear,
+// Durotar Tiger, Large Crag Boar.
+constexpr uint32 StarterBeasts[] = { 299, 2958, 3099, 1196, 3121, 1126 };
 constexpr uint32 RandomSuffixTries = 12;
 // Runeforging is taught by an Acherus quest; the bot's weapon gets this rune directly.
 constexpr uint32 RuneOfTheFallenCrusader = 53344;
@@ -752,6 +759,38 @@ bool RandomPlayerbotProgression::Relocate(Player& bot)
     }
     TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: %s level %u found no grind spot", bot.GetName().c_str(), level);
     return false;
+}
+
+bool RandomPlayerbotProgression::EnsureHunterPet(Player& bot)
+{
+    if (bot.getClass() != CLASS_HUNTER || !bot.HasSpell(CallPetSpell) || !bot.GetPetGUID().IsEmpty() ||
+        !bot.IsInWorld())
+        return false;
+    for (uint8 slot = PET_SLOT_FIRST_ACTIVE_SLOT; slot <= PET_SLOT_LAST_ACTIVE_SLOT; ++slot)
+        if (bot.GetPlayerPetDataBySlot(slot))
+            return false;
+    std::vector<uint32> beasts;
+    for (uint32 entry : StarterBeasts)
+        if (CreatureTemplate const* info = sObjectMgr->GetCreatureTemplate(entry); info && info->IsTameable(false))
+            beasts.push_back(entry);
+    if (beasts.empty())
+        return false;
+    // As Spell::EffectTameCreature, without a creature to despawn.
+    Pet* pet = bot.CreateTamedPetFrom(beasts[urand(0, uint32(beasts.size()) - 1)], TameBeast);
+    if (!pet)
+        return false;
+    pet->GetMap()->AddToMap(pet->ToCreature());
+    bot.SetMinion(pet, true);
+    pet->InitTalentForLevel();
+    pet->SavePetToDB(PET_SAVE_NEW_PET);
+    if (pet->GetSlot() > PET_SLOT_LAST_ACTIVE_SLOT)
+    {
+        pet->Remove(PET_SAVE_AS_DELETED);
+        return false;
+    }
+    bot.PetSpellInitialize();
+    TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: hunter %s tamed a %s", bot.GetName().c_str(), pet->GetName().c_str());
+    return true;
 }
 
 uint32_t RandomPlayerbotProgression::MountSpell(Player const& bot)

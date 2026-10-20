@@ -51,8 +51,8 @@ constexpr PlayerbotDecision::Action WarriorActions[] =
 
 void PlayerbotWarrior::LogKnownAbilities(Player const& bot)
 {
-    TC_LOG_INFO("module.playerbots", "PB-02: Strike %s for %s", bot.HasSpell(88161) ? "known" : "not learned", bot.GetName().c_str());
-    TC_LOG_INFO("module.playerbots", "PB-02: Warrior level=%u Victory Rush=%u Rend=%u Battle Shout=%u", bot.getLevel(),
+    TC_LOG_DEBUG("module.playerbots", "PB-02: Strike %s for %s", bot.HasSpell(88161) ? "known" : "not learned", bot.GetName().c_str());
+    TC_LOG_DEBUG("module.playerbots", "PB-02: Warrior level=%u Victory Rush=%u Rend=%u Battle Shout=%u", bot.getLevel(),
         bot.HasSpell(34428), bot.HasSpell(772), bot.HasSpell(6673));
 }
 

@@ -22,6 +22,15 @@ class WorldSession;
 
 namespace RandomPlayerbotQuests
 {
+// What a questing bot is busy with, counted for the status line.
+enum class Activity : uint8_t
+{
+    None,
+    Questing,   // working on quests at a spot, a giver or an object
+    Travelling, // on the way to a quest spot or turn-in
+    Grinding,   // nothing to quest here: fighting what is around
+};
+
 // Per bot, owned by its session behavior on the map thread (WantsRelocation is read by the world thread).
 struct BotState
 {
@@ -51,7 +60,9 @@ struct BotState
     uint32_t NextScanMs = 0;
     uint32_t IdleSinceMs = 0;
     std::atomic<bool> WantsRelocation { false };
+    Activity Doing = Activity::None;
 
+    ~BotState();
     void ClearSpot() { HasSpot = false; SpotArrivedMs = 0; TravelCheckMs = 0; }
 };
 

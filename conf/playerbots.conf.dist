@@ -394,8 +394,12 @@ Playerbots.Random.Level.Max = 85
 #                     levelling zones. They turn quests in and pick the best
 #                     reward. A spot without progress for 5 minutes is left for
 #                     another one; quests without progress for 30 minutes are
-#                     abandoned, and grey quests make room in a full log. Bots
-#                     are placed next to quest givers of a fitting zone.
+#                     abandoned, and grey quests make room in a full log.
+#                     Talk-to and delivery quests count when the recipient
+#                     stands in the giver's zone, so bots follow quest chains.
+#                     Bots with nothing left to do, or too high for their
+#                     zone, move to a quest hub of a fitting zone. The status
+#                     line counts bots questing, travelling and grinding.
 #                     Requires Playerbots.Random.Grind.Enabled and
 #                     Playerbots.Random.Level.Enabled.
 #        Default:     0 - (Disabled)

@@ -173,7 +173,7 @@ bool ApplyImbue(Player& bot, uint32 spellId)
     targets.SetItemTarget(weapon);
     if (spell->prepare(targets) != SPELL_CAST_OK)
         return false;
-    TC_LOG_INFO("module.playerbots", "PB-02: %s began weapon imbue %u", bot.GetName().c_str(), spellId);
+    TC_LOG_DEBUG("module.playerbots", "PB-02: %s began weapon imbue %u", bot.GetName().c_str(), spellId);
     return true;
 }
 
