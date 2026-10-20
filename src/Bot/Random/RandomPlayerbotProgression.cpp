@@ -58,6 +58,10 @@ constexpr uint32 RandomSuffixTries = 12;
 constexpr uint32 RuneOfTheFallenCrusader = 53344;
 // Maps of the phased start areas: Acherus, Kezan and the Lost Isles, Gilneas.
 constexpr uint32 PhasedStartMaps[] = { 609, 648, 654 };
+// The core lets nobody but a GM leave them before Death Gate is known or the last quest of the area is done.
+constexpr uint32 DeathGate = 50977;
+constexpr uint32 KezanFinalQuest = 25265;
+constexpr uint32 GilneasFinalQuest = 26706;
 // Capital entrances (game_tele Stormwind and Orgrimmar) where these bots are bound.
 struct Capital { uint32 Map; float X, Y, Z, O; };
 constexpr Capital Stormwind = { 0, -8833.07f, 622.778f, 93.9317f, 0.6771f };
@@ -766,9 +770,9 @@ bool RandomPlayerbotProgression::EnsureHunterPet(Player& bot)
     if (bot.getClass() != CLASS_HUNTER || !bot.HasSpell(CallPetSpell) || !bot.GetPetGUID().IsEmpty() ||
         !bot.IsInWorld())
         return false;
-    for (uint8 slot = PET_SLOT_FIRST_ACTIVE_SLOT; slot <= PET_SLOT_LAST_ACTIVE_SLOT; ++slot)
-        if (bot.GetPlayerPetDataBySlot(slot))
-            return false;
+    // Call Pet only reaches the first slot.
+    if (bot.GetPlayerPetDataBySlot(PET_SLOT_FIRST_ACTIVE_SLOT))
+        return false;
     std::vector<uint32> beasts;
     for (uint32 entry : StarterBeasts)
         if (CreatureTemplate const* info = sObjectMgr->GetCreatureTemplate(entry); info && info->IsTameable(false))
@@ -811,6 +815,12 @@ bool RandomPlayerbotProgression::MoveToCapital(Player& bot)
     sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
         capital.Y, capital.Z);
     bot.SetHomebind(WorldLocation(capital.Map, capital.X, capital.Y, capital.Z, capital.O), areaId);
+    if (bot.getClass() == CLASS_DEATH_KNIGHT && !bot.HasSpell(DeathGate))
+        bot.LearnSpell(DeathGate, false);
+    if (bot.getRace() == RACE_GOBLIN && bot.GetQuestStatus(KezanFinalQuest) != QUEST_STATUS_REWARDED)
+        bot.SetRewardedQuest(KezanFinalQuest);
+    if (bot.getRace() == RACE_WORGEN && bot.GetQuestStatus(GilneasFinalQuest) != QUEST_STATUS_REWARDED)
+        bot.SetRewardedQuest(GilneasFinalQuest);
     if (!bot.TeleportTo(capital.Map, capital.X, capital.Y, capital.Z, capital.O))
         return false;
     TC_LOG_INFO("module.playerbots", "PB-RANDOM: %s leaves its start area for %s", bot.GetName().c_str(),

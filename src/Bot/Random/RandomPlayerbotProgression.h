@@ -40,7 +40,7 @@ bool Relocate(Player& bot);
 bool InPhasedStart(Player const& bot);
 // Binds the bot in Stormwind or Orgrimmar and starts the teleport there.
 bool MoveToCapital(Player& bot);
-// Hunters with Call Pet but no pet in their active slots tame a beast. True when a pet was added.
+// Hunters with Call Pet but no pet in the slot Call Pet brings tame a beast. True when a pet was added.
 bool EnsureHunterPet(Player& bot);
 // The ground mount the bot learned with riding (any thread), or 0.
 uint32_t MountSpell(Player const& bot);

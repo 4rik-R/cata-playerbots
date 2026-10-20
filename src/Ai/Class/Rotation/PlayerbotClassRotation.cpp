@@ -185,8 +185,13 @@ bool InCombatForm(Player const& bot)
 
 bool NeedsPet(Player const& bot)
 {
-    return HasPet(bot.getClass()) && !bot.GetPet() && !bot.IsMounted() &&
-        (bot.HasSpell(HunterCallPet) || bot.HasSpell(WarlockImp) || bot.HasSpell(WarlockVoidwalker));
+    if (!HasPet(bot.getClass()) || bot.GetPet() || bot.IsMounted())
+        return false;
+    // Call Pet brings the pet of the first stable slot; without one the core only logs an error.
+    if (bot.getClass() == ClassHunter)
+        return bot.HasSpell(HunterCallPet) &&
+            const_cast<Player&>(bot).GetPlayerPetDataBySlot(PET_SLOT_FIRST_ACTIVE_SLOT);
+    return bot.HasSpell(WarlockImp) || bot.HasSpell(WarlockVoidwalker);
 }
 
 bool SummonPet(Player& bot)
