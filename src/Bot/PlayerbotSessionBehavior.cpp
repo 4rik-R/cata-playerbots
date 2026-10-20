@@ -1415,10 +1415,13 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                     !_ai.LootPursuit().Active() && !_player->IsNonMeleeSpellCast(false) && !_player->IsMounted() &&
                     RandomPlayerbotGrind::ReadyToPull(false, _player->GetHealthPct(), mana, usesMana))
                 {
-                    // Mobs an open quest needs first, from further out.
-                    target = RandomPlayerbotQuests::SelectQuestTarget(*_player);
-                    if (!target)
-                        target = RandomPlayerbotGrind::SelectTarget(*_player);
+                    // Mobs an open quest needs first, from further out; none on a journey.
+                    if (!_questState.Journeying())
+                    {
+                        target = RandomPlayerbotQuests::SelectQuestTarget(*_player);
+                        if (!target)
+                            target = RandomPlayerbotGrind::SelectTarget(*_player);
+                    }
                 }
             }
         }
@@ -1690,6 +1693,10 @@ void PlayerbotSessionBehavior::UpdateSoloController()
         // A human took over (invite or follow); hand control back to the party path.
         if (_ai.GetController() == bot)
             _ai.ClearController();
+        // A journey is dropped: the bot goes where its party goes.
+        _questState.Trip = {};
+        _questState.TripFailed = false;
+        RandomPlayerbotQuests::Dismount(*bot, _questState);
         _soloRecovering = false;
         _soloDeadMs = 0;
     }
@@ -1853,9 +1860,20 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         RandomPlayerbotProgression::KeepHunterPet(*bot);
     }
 
+    // A journey that got stuck ends with a teleport to its goal; one under way is left alone.
+    if (_questState.TripFailed.load())
+    {
+        if (RandomPlayerbotQuests::FinishFailedTrip(*bot, _questState))
+            _progressFarTeleport = bot->IsBeingTeleportedFar();
+        _soloHomeReset = true;
+        return;
+    }
+    if (_questState.Journeying())
+        return;
+
     // A questing bot with nothing left around it moves on to another quest giver.
     if (_questState.WantsRelocation.exchange(false) && _soloActive.load() && !bot->GetGroup() &&
-        level > RandomPlayerbotLevels::StartZoneLevel && RandomPlayerbotQuests::RelocateToGiver(*bot))
+        level > RandomPlayerbotLevels::StartZoneLevel && RandomPlayerbotQuests::RelocateToGiver(*bot, &_questState))
     {
         _progressFarTeleport = bot->IsBeingTeleportedFar();
         _soloHomeReset = true;
@@ -1869,7 +1887,7 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
     if (_progressRelocateMs && getMSTimeDiff(_progressRelocateMs, now) < 60000)
         return;
     _progressRelocateMs = now ? now : 1;
-    if (RandomPlayerbotProgression::Relocate(*bot))
+    if (RandomPlayerbotProgression::Relocate(*bot, &_questState))
     {
         _progressFarTeleport = bot->IsBeingTeleportedFar();
         _soloHomeReset = true;
