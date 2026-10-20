@@ -155,6 +155,8 @@ private:
     uint32 _progressRelocateMs = 0;
     bool _progressFarTeleport = false;
     // Map-owned questing state (WantsRelocation is consumed by the world thread).
+    bool _hunterPetChecked = false;
+    uint32 _hunterPetKeptMs = 0;
     RandomPlayerbotQuests::BotState _questState;
 
 };

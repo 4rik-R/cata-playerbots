@@ -65,7 +65,12 @@ struct Giver
     Point Pos;
     uint8 Teams;
     std::vector<uint32> Quests;
+    uint32 HubSize = 1; // givers within HubRadius, itself included
 };
+// Quest givers this close together count as one quest hub.
+constexpr float HubRadius = 60.0f;
+// A relocated bot compares this many fitting givers and takes the biggest hub.
+constexpr uint32 HubCandidates = 6;
 
 std::unordered_set<uint32> BotQuests;
 // Creature entry -> kill objectives it counts for; kill objective -> entries that count.
@@ -84,6 +89,19 @@ std::unordered_map<uint32, std::vector<uint32>> OpenSpells;
 std::vector<Giver> Givers;
 std::vector<std::vector<uint32>> GiversByLevel; // level -> index into Givers
 uint32 VerdictCounts[5] = {};
+std::atomic<uint32> ActivityCounts[4] = {};
+
+void SetActivity(RandomPlayerbotQuests::BotState& state, RandomPlayerbotQuests::Activity activity)
+{
+    if (state.Doing == activity)
+        return;
+    if (state.Doing != RandomPlayerbotQuests::Activity::None)
+        --ActivityCounts[uint8(state.Doing)];
+    if (activity != RandomPlayerbotQuests::Activity::None)
+        ++ActivityCounts[uint8(activity)];
+    state.Doing = activity;
+}
+uint32 DeliveryCount = 0;
 std::atomic<uint32> AcceptedCount { 0 }, CompletedCount { 0 }, AbandonedCount { 0 }, ObjectCount { 0 };
 
 bool OpenWorld(uint32 map)
@@ -124,6 +142,35 @@ Shape ShapeOf(Quest const& quest)
         ++shape.ItemObjectives;
     }
     return shape;
+}
+
+template<class Enders>
+bool DeliveryNearby(std::vector<uint32> const& starters, Enders const& enders,
+    std::unordered_map<uint32, std::vector<Point>> const& spawns)
+{
+    constexpr size_t MaxSpawnsChecked = 20;
+    for (uint32 starter : starters)
+    {
+        auto from = spawns.find(starter);
+        if (from == spawns.end())
+            continue;
+        for (uint32 ender : enders)
+        {
+            auto to = spawns.find(ender);
+            if (to == spawns.end())
+                continue;
+            for (size_t i = 0; i < std::min(from->second.size(), MaxSpawnsChecked); ++i)
+                for (size_t j = 0; j < std::min(to->second.size(), MaxSpawnsChecked); ++j)
+                {
+                    Point const& a = from->second[i];
+                    Point const& b = to->second[j];
+                    if (a.Map == b.Map && a.Zone && a.Zone == b.Zone &&
+                        std::hypot(a.X - b.X, a.Y - b.Y) <= TravelRange)
+                        return true;
+                }
+        }
+    }
+    return false;
 }
 
 uint8 TeamOf(Player const& bot)
@@ -911,7 +958,19 @@ void RandomPlayerbotQuests::BuildIndex()
     {
         Verdict verdict = Classify(ShapeOf(quest));
         ++VerdictCounts[uint8(verdict)];
-        if (verdict != Verdict::Supported || !starters.count(id))
+        if (!starters.count(id))
+            continue;
+        if (verdict == Verdict::NoObjective)
+        {
+            // Talk-to and delivery quests: only when the recipient stands in the giver's zone, close enough to walk.
+            if (quest.GetMoneyReward(nullptr) < 0 || !DeliveryNearby(starters[id],
+                sObjectMgr->GetCreatureQuestInvolvedRelationsReverse(id), spawns))
+                continue;
+            ++DeliveryCount;
+            candidates.push_back(&quest);
+            continue;
+        }
+        if (verdict != Verdict::Supported)
             continue;
         bool ender = false;
         for (uint32 entry : sObjectMgr->GetCreatureQuestInvolvedRelationsReverse(id))
@@ -1085,6 +1144,30 @@ void RandomPlayerbotQuests::BuildIndex()
         }
     }
 
+    // Givers close together form quest hubs; relocated bots prefer big ones.
+    std::unordered_map<uint64, std::vector<uint32>> cells; // map and 60-yard cell -> givers
+    auto cellOf = [](Point const& point, int32 dx, int32 dy)
+    {
+        int64 x = int64(std::floor(point.X / HubRadius)) + dx, y = int64(std::floor(point.Y / HubRadius)) + dy;
+        return (uint64(point.Map) << 48) ^ (uint64(x & 0xFFFFFF) << 24) ^ uint64(y & 0xFFFFFF);
+    };
+    for (uint32 i = 0; i < Givers.size(); ++i)
+        cells[cellOf(Givers[i].Pos, 0, 0)].push_back(i);
+    for (Giver& giver : Givers)
+    {
+        uint32 near = 0;
+        for (int32 dx = -1; dx <= 1; ++dx)
+            for (int32 dy = -1; dy <= 1; ++dy)
+                if (auto found = cells.find(cellOf(giver.Pos, dx, dy)); found != cells.end())
+                    for (uint32 other : found->second)
+                    {
+                        Point const& pos = Givers[other].Pos;
+                        if (pos.Map == giver.Pos.Map && std::hypot(pos.X - giver.Pos.X, pos.Y - giver.Pos.Y) <= HubRadius)
+                            ++near;
+                    }
+        giver.HubSize = std::max<uint32>(near, 1);
+    }
+
     uint32 withPoi = 0;
     for (uint32 id : BotQuests)
         if (QuestPOIData const* poi = sObjectMgr->GetQuestPOIData(int32(id)); poi && !poi->Blobs.empty())
@@ -1093,11 +1176,11 @@ void RandomPlayerbotQuests::BuildIndex()
     IndexReady = true;
     uint32 const* counts = VerdictCounts;
     TC_LOG_INFO("module.playerbots", "Random playerbots: %u quests for bots (of %u simple; skipped %u unavailable, "
-        "%u scripted, %u unspawned object, %u talk-to) at %u givers, %u with quest-map markers, %u quest objects, "
-        "in %u ms.",
+        "%u scripted, %u unspawned object, %u talk-to of which %u in reach) at %u givers, %u with quest-map "
+        "markers, %u quest objects, in %u ms.",
         uint32(BotQuests.size()), counts[uint8(Verdict::Supported)], counts[uint8(Verdict::Unavailable)],
         counts[uint8(Verdict::Scripted)], counts[uint8(Verdict::GameObject)], counts[uint8(Verdict::NoObjective)],
-        uint32(Givers.size()), withPoi, uint32(ObjectSpawns.size()), getMSTimeDiff(started, getMSTime()));
+        DeliveryCount, uint32(Givers.size()), withPoi, uint32(ObjectSpawns.size()), getMSTimeDiff(started, getMSTime()));
 }
 
 Creature* RandomPlayerbotQuests::SelectQuestTarget(Player& bot)
@@ -1128,6 +1211,11 @@ Creature* RandomPlayerbotQuests::SelectQuestTarget(Player& bot)
         }
     }
     return best;
+}
+
+RandomPlayerbotQuests::BotState::~BotState()
+{
+    SetActivity(*this, Activity::None);
 }
 
 void RandomPlayerbotQuests::Dismount(Player& bot, BotState& state)
@@ -1170,12 +1258,14 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
             state.Giver.Clear();
             state.ClearSpot();
             home = bot.GetPosition();
+            SetActivity(state, Activity::Questing);
             return false;
         }
         else
         {
             if (!bot.isMoving())
                 bot.GetMotionMaster()->MovePoint(0, giver->GetPosition(), true);
+            SetActivity(state, Activity::Questing);
             return true;
         }
     }
@@ -1187,12 +1277,14 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
         state.Object.Clear();
         state.IdleSinceMs = 0;
         bot.GetMotionMaster()->MovePoint(0, giver->GetPosition(), true);
+        SetActivity(state, Activity::Questing);
         return true;
     }
     if (!open)
     {
         state.ClearSpot();
         Dismount(bot, state);
+        SetActivity(state, Activity::Grinding);
         if (!state.IdleSinceMs)
             state.IdleSinceMs = now ? now : 1;
         else if (getMSTimeDiff(state.IdleSinceMs, now) >= IdleRelocateMs)
@@ -1204,13 +1296,17 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
     }
 
     if (!state.Object.IsEmpty() && UpdateObject(session, bot, state, now))
+    {
+        SetActivity(state, Activity::Questing);
         return true;
+    }
     if (GameObject* object = FindObject(bot, state, now))
     {
         Dismount(bot, state);
         state.Object = object->GetGUID();
         state.ObjectSinceMs = now;
         state.IdleSinceMs = 0;
+        SetActivity(state, Activity::Questing);
         return UpdateObject(session, bot, state, now);
     }
 
@@ -1228,6 +1324,7 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
         {
             // Nothing reachable here: wait, then move on to another quest giver.
             Dismount(bot, state);
+            SetActivity(state, Activity::Grinding);
             if (!state.IdleSinceMs)
                 state.IdleSinceMs = now ? now : 1;
             else if (getMSTimeDiff(state.IdleSinceMs, now) >= IdleRelocateMs)
@@ -1244,7 +1341,9 @@ bool RandomPlayerbotQuests::Update(WorldSession& session, Player& bot, BotState&
     }
     state.IdleSinceMs = 0;
     // At the spot the grind finds quest mobs; the wander leash keeps the bot around it.
-    return Travel(bot, state, home, now);
+    bool travelling = Travel(bot, state, home, now);
+    SetActivity(state, travelling ? Activity::Travelling : Activity::Questing);
+    return travelling;
 }
 
 bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
@@ -1254,11 +1353,14 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
     uint32 level = std::min<uint32>(bot.getLevel(), RandomPlayerbotLevels::MaxLevel);
     uint8 team = TeamOf(bot);
     std::vector<uint32> const& bucket = GiversByLevel[level];
-    for (uint32 attempt = 0; attempt < MaxGiverAttempts && !bucket.empty(); ++attempt)
+    Giver const* best = nullptr;
+    uint32 found = 0;
+    for (uint32 attempt = 0; attempt < MaxGiverAttempts && !bucket.empty() && found < HubCandidates; ++attempt)
     {
         Giver const& giver = Givers[bucket[urand(0, uint32(bucket.size()) - 1)]];
         if (!(giver.Teams & team) || (giver.Pos.Map == bot.GetMapId() &&
-            bot.GetExactDist2d(giver.Pos.X, giver.Pos.Y) < GiverRange))
+            bot.GetExactDist2d(giver.Pos.X, giver.Pos.Y) < GiverRange) ||
+            !RandomPlayerbotLevels::ZoneFits(giver.Pos.Zone, level, team))
             continue;
         bool offers = false;
         for (uint32 id : giver.Quests)
@@ -1266,18 +1368,19 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
                 offers = true;
         if (!offers)
             continue;
-        uint32 zoneId = giver.Pos.Zone;
-        if (!RandomPlayerbotLevels::ZoneFits(zoneId, level, team))
-            continue;
-        // A few steps in front of the giver, facing it.
-        float x = giver.Pos.X + 4.0f * std::cos(giver.Pos.O), y = giver.Pos.Y + 4.0f * std::sin(giver.Pos.O);
-        if (!bot.TeleportTo(giver.Pos.Map, x, y, giver.Pos.Z + 0.5f, giver.Pos.O + float(M_PI)))
-            return false;
-        TC_LOG_DEBUG("module.playerbots", "PB-QUEST: %s level %u sent to a quest giver in zone %u", bot.GetName().c_str(),
-            level, zoneId);
-        return true;
+        ++found;
+        if (!best || giver.HubSize > best->HubSize)
+            best = &giver;
     }
-    return false;
+    if (!best)
+        return false;
+    // A few steps in front of the giver, facing it.
+    float x = best->Pos.X + 4.0f * std::cos(best->Pos.O), y = best->Pos.Y + 4.0f * std::sin(best->Pos.O);
+    if (!bot.TeleportTo(best->Pos.Map, x, y, best->Pos.Z + 0.5f, best->Pos.O + float(M_PI)))
+        return false;
+    TC_LOG_DEBUG("module.playerbots", "PB-QUEST: %s level %u sent to a quest hub of %u givers in zone %u",
+        bot.GetName().c_str(), level, best->HubSize, uint32(best->Pos.Zone));
+    return true;
 }
 
 std::string RandomPlayerbotQuests::Describe()
@@ -1287,5 +1390,8 @@ std::string RandomPlayerbotQuests::Describe()
     return "quests " + std::to_string(BotQuests.size()) + " at " + std::to_string(Givers.size()) +
         " givers, accepted " + std::to_string(AcceptedCount.load()) + ", completed " +
         std::to_string(CompletedCount.load()) + ", abandoned " + std::to_string(AbandonedCount.load()) +
-        ", objects used " + std::to_string(ObjectCount.load());
+        ", objects used " + std::to_string(ObjectCount.load()) + "; bots questing " +
+        std::to_string(ActivityCounts[uint8(Activity::Questing)].load()) + ", travelling " +
+        std::to_string(ActivityCounts[uint8(Activity::Travelling)].load()) + ", grinding " +
+        std::to_string(ActivityCounts[uint8(Activity::Grinding)].load());
 }

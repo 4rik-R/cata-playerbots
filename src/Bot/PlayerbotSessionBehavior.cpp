@@ -942,14 +942,14 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
             _serverOriginAutoAssistEnabled.store(true);
             _serverOriginFollowTraceRemainingMs = 60000;
             _serverOriginFollowTraceSampleTimerMs = 0;
-            TC_LOG_INFO("module.playerbots", "PB-01: %s following %s", _player->GetName().c_str(), owner->GetName().c_str());
+            TC_LOG_DEBUG("module.playerbots", "PB-01: %s following %s", _player->GetName().c_str(), owner->GetName().c_str());
             if (_player->getClass() == CLASS_PRIEST)
                 PlayerbotPriest::LogKnownAbilities(*_player);
         }
         else
         {
             hold(false);
-            TC_LOG_INFO("module.playerbots", "PB-01: follow target %u unavailable on bot map; holding", uint32(request));
+            TC_LOG_DEBUG("module.playerbots", "PB-01: follow target %u unavailable on bot map; holding", uint32(request));
         }
     }
 
@@ -968,13 +968,13 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
             else if (owner && !owner->IsAlive())
                 TC_LOG_INFO("module.playerbots", "PB-DEATH: human owner %s died; bot %s holding", owner->GetName().c_str(), _player->GetName().c_str());
             else
-                TC_LOG_INFO("module.playerbots", "PB-01: follow target left bot map; holding");
+                TC_LOG_DEBUG("module.playerbots", "PB-01: follow target left bot map; holding");
         }
         else if (_serverOriginFollowTraceRemainingMs)
         {
             if (_serverOriginFollowTraceSampleTimerMs <= diff)
             {
-                TC_LOG_INFO("module.playerbots", "PB-01 trace: t=%us owner=(%.2f,%.2f,%.2f) bot=(%.2f,%.2f,%.2f) distance=%.1f ownerFlags=%u botMotion=%u",
+                TC_LOG_DEBUG("module.playerbots", "PB-01 trace: t=%us owner=(%.2f,%.2f,%.2f) bot=(%.2f,%.2f,%.2f) distance=%.1f ownerFlags=%u botMotion=%u",
                     (60000 - _serverOriginFollowTraceRemainingMs) / 1000,
                     owner->GetPositionX(), owner->GetPositionY(), owner->GetPositionZ(),
                     _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(),
@@ -1258,7 +1258,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         _ai.ClearCurrentTarget();
         _serverOriginSupportReachGuid.Clear();
         if (_serverOriginAttacking.exchange(false))
-            TC_LOG_INFO("module.playerbots", "PB-02: %s ceased attack", _player->GetName().c_str());
+            TC_LOG_DEBUG("module.playerbots", "PB-02: %s ceased attack", _player->GetName().c_str());
         _serverOriginCombatTargetGuid.Clear();
         _serverOriginAutoAssistedAttack = false;
         _serverOriginActionCheckTimer = 0;
@@ -1333,7 +1333,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             _serverOriginMeleeStance = tanking ? 2 : 1;
             _player->GetMotionMaster()->MoveChase(target, std::nullopt, ChaseAngle(PlayerbotGroup::MeleeChaseAngle(tanking)));
         }
-        TC_LOG_INFO("module.playerbots", "PB-02: %s %s %s", _player->GetName().c_str(), autoAssisted ? "auto-assisting" : "attacking", target->GetName().c_str());
+        TC_LOG_DEBUG("module.playerbots", "PB-02: %s %s %s", _player->GetName().c_str(), autoAssisted ? "auto-assisting" : "attacking", target->GetName().c_str());
         if (_player->getClass() == CLASS_PRIEST)
             PlayerbotPriest::LogKnownAbilities(*_player);
         else if (rotation)
@@ -1356,7 +1356,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         Creature* target = selected ? selected->ToCreature() : nullptr;
         if (!validTarget(owner, target))
         {
-            TC_LOG_INFO("module.playerbots", "PB-02: attack rejected; selected=%s ownerDist=%.1f botTargetDist=%.1f ownerTargetDist=%.1f targetAlive=%u validTarget=%u lineOfSight=%u",
+            TC_LOG_DEBUG("module.playerbots", "PB-02: attack rejected; selected=%s ownerDist=%.1f botTargetDist=%.1f ownerTargetDist=%.1f targetAlive=%u validTarget=%u lineOfSight=%u",
                 selected ? selected->GetName().c_str() : "none", owner ? _player->GetDistance(owner) : -1.0f,
                 target ? _player->GetDistance(target) : -1.0f, owner && target ? owner->GetDistance(target) : -1.0f,
                 target && target->IsAlive(), target && _player->IsValidAttackTarget(target), target && _player->IsWithinLOSInMap(target));
@@ -1365,7 +1365,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         else
         {
             if (!beginAttack(target, false))
-                TC_LOG_INFO("module.playerbots", "PB-02: attack rejected by core combat rules");
+                TC_LOG_DEBUG("module.playerbots", "PB-02: attack rejected by core combat rules");
         }
     }
 
@@ -1495,12 +1495,12 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             if (target && !target->IsAlive())
             {
                 _ai.RecordDefeatedCreature(target->GetGUID(), getMSTime());
-                TC_LOG_INFO("module.playerbots", "PB-02: %s target died; returning to follow", _player->GetName().c_str());
+                TC_LOG_DEBUG("module.playerbots", "PB-02: %s target died; returning to follow", _player->GetName().c_str());
             }
             else if (target && PlayerbotTargetSelection::IsProtectedTarget(*target))
-                TC_LOG_INFO("module.playerbots", "PB-02: %s target protected by control; returning to follow", _player->GetName().c_str());
+                TC_LOG_DEBUG("module.playerbots", "PB-02: %s target protected by control; returning to follow", _player->GetName().c_str());
             else if (ownerBeyondLeash || targetBeyondLeash)
-                TC_LOG_INFO("module.playerbots", "PB-02: %s exceeded combat leash; returning to follow", _player->GetName().c_str());
+                TC_LOG_DEBUG("module.playerbots", "PB-02: %s exceeded combat leash; returning to follow", _player->GetName().c_str());
             cease();
             tickPriest();
             return;
@@ -1713,7 +1713,7 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
         bot->SpawnCorpseBones();
         _soloRecovering = true;
         _soloWanderTimer = RandomPlayerbotGrind::WanderDelayMs(frand(0.0f, 1.0f));
-        TC_LOG_INFO("module.playerbots", "PB-RANDOM: %s revived in place", bot->GetName().c_str());
+        TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: %s revived in place", bot->GetName().c_str());
         return;
     }
     _soloDeadMs = 0;
@@ -1840,6 +1840,18 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
 
     if (bot->IsInCombat())
         return;
+
+    // Hunters created without a pet tame one, so Call Pet and Revive Pet have something to bring.
+    if (!_hunterPetChecked && !bot->IsMounted() && !bot->IsInFlight())
+    {
+        _hunterPetChecked = true;
+        RandomPlayerbotProgression::EnsureHunterPet(*bot);
+    }
+    if (getMSTimeDiff(_hunterPetKeptMs, now) >= 10000)
+    {
+        _hunterPetKeptMs = now;
+        RandomPlayerbotProgression::KeepHunterPet(*bot);
+    }
 
     // A questing bot with nothing left around it moves on to another quest giver.
     if (_questState.WantsRelocation.exchange(false) && _soloActive.load() && !bot->GetGroup() &&

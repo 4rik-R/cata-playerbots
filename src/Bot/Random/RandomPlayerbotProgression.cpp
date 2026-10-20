@@ -18,6 +18,9 @@
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
+#include "Map.h"
+#include "Pet.h"
+#include "QuestDef.h"
 #include "Player.h"
 #include "Random.h"
 #include "SpellInfo.h"
@@ -46,11 +49,23 @@ constexpr uint32 BlueGearMaxItemLevel = 346; // heroic Cataclysm dungeon level
 constexpr uint32 ApprenticeRiding = 33388;
 constexpr uint32 AllianceMount = 458;  // Brown Horse
 constexpr uint32 HordeMount = 580;     // Timber Wolf
+constexpr uint32 CallPetSpell = 883;
+constexpr uint32 RevivePetSpell = 982;
+constexpr uint32 TameBeast = 1515;
+// Plain beasts every hunter can tame: Young Wolf, Prairie Wolf, Dire Mottled Boar, Ice Claw Bear,
+// Durotar Tiger, Large Crag Boar.
+constexpr uint32 StarterBeasts[] = { 299, 2958, 3099, 1196, 3121, 1126 };
 constexpr uint32 RandomSuffixTries = 12;
 // Runeforging is taught by an Acherus quest; the bot's weapon gets this rune directly.
 constexpr uint32 RuneOfTheFallenCrusader = 53344;
 // Maps of the phased start areas: Acherus, Kezan and the Lost Isles, Gilneas.
 constexpr uint32 PhasedStartMaps[] = { 609, 648, 654 };
+// The core lets nobody but a GM leave them before Death Gate is known or the last quest of the area is done.
+constexpr uint32 DeathGate = 50977;
+// Quest sorts of the start chains: death knight class quests (Acherus), Kezan, the Lost Isles, Gilneas, Gilneas City.
+constexpr int32 DeathKnightQuests = -372;
+constexpr int32 GoblinStartZones[] = { 4737, 4720 };
+constexpr int32 WorgenStartZones[] = { 4714, 4755 };
 // Capital entrances (game_tele Stormwind and Orgrimmar) where these bots are bound.
 struct Capital { uint32 Map; float X, Y, Z, O; };
 constexpr Capital Stormwind = { 0, -8833.07f, 622.778f, 93.9317f, 0.6771f };
@@ -690,6 +705,7 @@ void RandomPlayerbotProgression::Initialize(Player& bot, uint32_t level)
     EquipForLevel(bot);
     LearnRiding(bot);
     Restock(bot);
+    CompleteStartChain(bot);
     if (bot.GetMoney() < StartingMoney(level))
         bot.ModifyMoney(int64(StartingMoney(level) - bot.GetMoney()));
     bot.SetFullHealth();
@@ -754,6 +770,54 @@ bool RandomPlayerbotProgression::Relocate(Player& bot)
     return false;
 }
 
+bool RandomPlayerbotProgression::EnsureHunterPet(Player& bot)
+{
+    if (bot.getClass() != CLASS_HUNTER || !bot.HasSpell(CallPetSpell) || !bot.GetPetGUID().IsEmpty() ||
+        !bot.IsInWorld())
+        return false;
+    // Call Pet only reaches the first slot.
+    if (bot.GetPlayerPetDataBySlot(PET_SLOT_FIRST_ACTIVE_SLOT))
+        return false;
+    std::vector<uint32> beasts;
+    for (uint32 entry : StarterBeasts)
+        if (CreatureTemplate const* info = sObjectMgr->GetCreatureTemplate(entry); info && info->IsTameable(false))
+            beasts.push_back(entry);
+    if (beasts.empty())
+        return false;
+    // As Spell::EffectTameCreature, without a creature to despawn.
+    Pet* pet = bot.CreateTamedPetFrom(beasts[urand(0, uint32(beasts.size()) - 1)], TameBeast);
+    if (!pet)
+        return false;
+    pet->GetMap()->AddToMap(pet->ToCreature());
+    bot.SetMinion(pet, true);
+    pet->InitTalentForLevel();
+    pet->SavePetToDB(PET_SAVE_NEW_PET);
+    if (pet->GetSlot() > PET_SLOT_LAST_ACTIVE_SLOT)
+    {
+        pet->Remove(PET_SAVE_AS_DELETED);
+        return false;
+    }
+    bot.PetSpellInitialize();
+    TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: hunter %s tamed a %s", bot.GetName().c_str(), pet->GetName().c_str());
+    return true;
+}
+
+void RandomPlayerbotProgression::KeepHunterPet(Player& bot)
+{
+    if (bot.getClass() != CLASS_HUNTER || !bot.IsAlive() || bot.IsInCombat() || bot.IsMounted() || bot.IsInFlight() ||
+        bot.IsNonMeleeSpellCast(false) || bot.IsPetNeedBeTemporaryUnsummoned())
+        return;
+    // Revive Pet needs the pet out, even as a corpse; Call Pet brings it either way.
+    if (Pet* pet = bot.GetPet())
+    {
+        if (!pet->IsAlive() && bot.HasSpell(RevivePetSpell))
+            bot.CastSpell(&bot, RevivePetSpell, true);
+        return;
+    }
+    if (bot.HasSpell(CallPetSpell) && bot.GetPlayerPetDataBySlot(PET_SLOT_FIRST_ACTIVE_SLOT))
+        bot.CastSpell(&bot, CallPetSpell, true);
+}
+
 uint32_t RandomPlayerbotProgression::MountSpell(Player const& bot)
 {
     uint32 mount = bot.GetTeamId() == TEAM_ALLIANCE ? AllianceMount : HordeMount;
@@ -772,9 +836,65 @@ bool RandomPlayerbotProgression::MoveToCapital(Player& bot)
     sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
         capital.Y, capital.Z);
     bot.SetHomebind(WorldLocation(capital.Map, capital.X, capital.Y, capital.Z, capital.O), areaId);
+    CompleteStartChain(bot);
     if (!bot.TeleportTo(capital.Map, capital.X, capital.Y, capital.Z, capital.O))
         return false;
     TC_LOG_INFO("module.playerbots", "PB-RANDOM: %s leaves its start area for %s", bot.GetName().c_str(),
         capital.Map == Stormwind.Map ? "Stormwind" : "Orgrimmar");
     return true;
+}
+
+bool RandomPlayerbotProgression::SkipsStartArea(uint8_t race, uint8_t playerClass)
+{
+    return playerClass == CLASS_DEATH_KNIGHT || race == RACE_WORGEN || race == RACE_GOBLIN;
+}
+
+void RandomPlayerbotProgression::PlaceInCapital(uint32_t guidLow)
+{
+    QueryResult result = CharacterDatabase.PQuery("SELECT race, class FROM characters WHERE guid = %u", guidLow);
+    if (!result)
+        return;
+    uint8 race = (*result)[0].GetUInt8();
+    if (!SkipsStartArea(race, (*result)[1].GetUInt8()))
+        return;
+    Capital const& capital = Player::TeamForRace(race) == ALLIANCE ? Stormwind : Orgrimmar;
+    uint32 zoneId = 0, areaId = 0;
+    sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, capital.Map, capital.X,
+        capital.Y, capital.Z);
+    CharacterDatabase.DirectPExecute("UPDATE characters SET map = %u, zone = %u, position_x = %f, position_y = %f, "
+        "position_z = %f, orientation = %f, instance_id = 0 WHERE guid = %u", capital.Map, zoneId, capital.X, capital.Y,
+        capital.Z, capital.O, guidLow);
+    CharacterDatabase.DirectPExecute("UPDATE character_homebind SET mapId = %u, zoneId = %u, posX = %f, posY = %f, "
+        "posZ = %f WHERE guid = %u", capital.Map, areaId, capital.X, capital.Y, capital.Z, guidLow);
+}
+
+void RandomPlayerbotProgression::CompleteStartChain(Player& bot)
+{
+    if (!SkipsStartArea(bot.getRace(), bot.getClass()))
+        return;
+    if (bot.getClass() == CLASS_DEATH_KNIGHT && !bot.HasSpell(DeathGate))
+        bot.LearnSpell(DeathGate, false);
+    auto chained = [&bot](int32 sort)
+    {
+        if (bot.getClass() == CLASS_DEATH_KNIGHT && sort == DeathKnightQuests)
+            return true;
+        if (bot.getRace() == RACE_GOBLIN)
+            return std::find(std::begin(GoblinStartZones), std::end(GoblinStartZones), sort) != std::end(GoblinStartZones);
+        if (bot.getRace() == RACE_WORGEN)
+            return std::find(std::begin(WorgenStartZones), std::end(WorgenStartZones), sort) != std::end(WorgenStartZones);
+        return false;
+    };
+    for (auto const& [id, quest] : sObjectMgr->GetQuestTemplates())
+    {
+        if (!chained(quest.GetZoneOrSort()) || bot.GetQuestStatus(id) == QUEST_STATUS_REWARDED ||
+            (quest.GetAllowableRaces() && !(quest.GetAllowableRaces() & bot.getRaceMask())) ||
+            (quest.GetAllowableClasses() && !(quest.GetAllowableClasses() & bot.getClassMask())))
+            continue;
+        uint16 slot = bot.FindQuestSlot(id);
+        if (slot < MAX_QUEST_LOG_SIZE)
+            bot.SetQuestSlot(slot, 0);
+        if (bot.GetQuestStatus(id) != QUEST_STATUS_NONE)
+            bot.RemoveActiveQuest(id, false);
+        bot.SetRewardedQuest(id);
+    }
 }

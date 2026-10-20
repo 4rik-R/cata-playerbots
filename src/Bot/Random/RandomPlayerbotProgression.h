@@ -40,6 +40,16 @@ bool Relocate(Player& bot);
 bool InPhasedStart(Player const& bot);
 // Binds the bot in Stormwind or Orgrimmar and starts the teleport there.
 bool MoveToCapital(Player& bot);
+// Death knights, Worgen and Goblins skip Acherus, Gilneas and Kezan.
+bool SkipsStartArea(uint8_t race, uint8_t playerClass);
+// Puts a new character that never logged in at its capital entrance and binds it there (synchronous).
+void PlaceInCapital(uint32_t guidLow);
+// Marks the quests of the skipped start area as done and teaches Death Gate.
+void CompleteStartChain(Player& bot);
+// Hunters with Call Pet but no pet in the slot Call Pet brings tame a beast. True when a pet was added.
+bool EnsureHunterPet(Player& bot);
+// Out of combat and on foot: hunters call their first stable pet and revive it when it is dead.
+void KeepHunterPet(Player& bot);
 // The ground mount the bot learned with riding (any thread), or 0.
 uint32_t MountSpell(Player const& bot);
 }

@@ -173,7 +173,7 @@ bool ApplyImbue(Player& bot, uint32 spellId)
     targets.SetItemTarget(weapon);
     if (spell->prepare(targets) != SPELL_CAST_OK)
         return false;
-    TC_LOG_INFO("module.playerbots", "PB-02: %s began weapon imbue %u", bot.GetName().c_str(), spellId);
+    TC_LOG_DEBUG("module.playerbots", "PB-02: %s began weapon imbue %u", bot.GetName().c_str(), spellId);
     return true;
 }
 
@@ -185,16 +185,21 @@ bool InCombatForm(Player const& bot)
 
 bool NeedsPet(Player const& bot)
 {
-    return HasPet(bot.getClass()) && !bot.GetPet() && !bot.IsMounted() &&
-        (bot.HasSpell(HunterCallPet) || bot.HasSpell(WarlockImp) || bot.HasSpell(WarlockVoidwalker));
+    if (!HasPet(bot.getClass()) || bot.IsMounted())
+        return false;
+    // Call Pet brings the pet of the first stable slot, dead or alive; without one the core only logs an error.
+    if (bot.getClass() == ClassHunter)
+        return bot.GetPet() ? !bot.GetPet()->IsAlive() && bot.HasSpell(HunterRevivePet) :
+            bot.HasSpell(HunterCallPet) && const_cast<Player&>(bot).GetPlayerPetDataBySlot(PET_SLOT_FIRST_ACTIVE_SLOT);
+    return !bot.GetPet() && (bot.HasSpell(WarlockImp) || bot.HasSpell(WarlockVoidwalker));
 }
 
 bool SummonPet(Player& bot)
 {
+    // Revive Pet only works on a pet that is out: with none the core summons entry 0 and logs an error.
     if (bot.getClass() == ClassHunter)
-        // Call Pet fails while the stable pet is dead; Revive Pet then brings it back.
-        return PlayerbotDecision::TryCast(bot, bot, HunterCallPet, "Call Pet") ||
-            PlayerbotDecision::TryCast(bot, bot, HunterRevivePet, "Revive Pet");
+        return bot.GetPet() ? PlayerbotDecision::TryCast(bot, bot, HunterRevivePet, "Revive Pet") :
+            PlayerbotDecision::TryCast(bot, bot, HunterCallPet, "Call Pet");
     return PlayerbotDecision::TryCast(bot, bot, WarlockVoidwalker, "Summon Voidwalker") ||
         PlayerbotDecision::TryCast(bot, bot, WarlockImp, "Summon Imp");
 }
