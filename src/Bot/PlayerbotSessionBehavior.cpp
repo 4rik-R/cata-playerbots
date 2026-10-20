@@ -1672,7 +1672,8 @@ void PlayerbotSessionBehavior::UpdateSoloController()
     {
         _soloHomeSet = false; // relocated by the world thread: grind around the new spot
         _questState.Giver.Clear();
-        _questState.Hunting = false;
+        _questState.Object.Clear();
+        _questState.ClearSpot();
     }
     if (solo)
     {
@@ -1717,9 +1718,12 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
     }
     _soloDeadMs = 0;
 
+    // A mount taken for questing travel is left as soon as a fight starts.
+    if (_questState.Riding && (_serverOriginAttacking.load() || bot->IsInCombat()))
+        RandomPlayerbotQuests::Dismount(*bot, _questState);
     if (_serverOriginAttacking.load() || bot->IsInCombat() || _ai.GetRestSpellId() ||
         _ai.LootRequests().Pending() || _ai.LootPursuit().Active() || bot->IsNonMeleeSpellCast(false) ||
-        bot->IsMounted() || bot->IsInFlight())
+        (bot->IsMounted() && !_questState.Riding) || bot->IsInFlight())
         return;
 
     int32 maximum = bot->GetMaxPower(POWER_MANA);
@@ -1727,6 +1731,7 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
     float mana = usesMana ? 100.0f * bot->GetPower(POWER_MANA) / maximum : 100.0f;
     if (!RandomPlayerbotGrind::ReadyToPull(_soloRecovering, bot->GetHealthPct(), mana, usesMana))
     {
+        RandomPlayerbotQuests::Dismount(*bot, _questState);
         if (!_soloRecovering && !bot->isMoving())
         {
             _soloRecovering = true;

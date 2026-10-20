@@ -754,6 +754,12 @@ bool RandomPlayerbotProgression::Relocate(Player& bot)
     return false;
 }
 
+uint32_t RandomPlayerbotProgression::MountSpell(Player const& bot)
+{
+    uint32 mount = bot.GetTeamId() == TEAM_ALLIANCE ? AllianceMount : HordeMount;
+    return bot.HasSpell(mount) && bot.HasSpell(ApprenticeRiding) ? mount : 0;
+}
+
 bool RandomPlayerbotProgression::InPhasedStart(Player const& bot)
 {
     return std::find(std::begin(PhasedStartMaps), std::end(PhasedStartMaps), bot.GetMapId()) != std::end(PhasedStartMaps);
