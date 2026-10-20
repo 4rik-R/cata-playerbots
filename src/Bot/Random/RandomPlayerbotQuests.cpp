@@ -21,12 +21,10 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
-#include "PhasingHandler.h"
 #include "Player.h"
 #include "QuestDef.h"
 #include "QuestPackets.h"
 #include "Random.h"
-#include "TerrainMgr.h"
 #include "Timer.h"
 #include "WorldSession.h"
 #include <algorithm>
@@ -52,6 +50,7 @@ constexpr uint32 MaxGiverAttempts = 40;
 struct Point
 {
     uint16 Map;
+    uint16 Zone;
     float X, Y, Z, O;
 };
 
@@ -111,6 +110,18 @@ Shape ShapeOf(Quest const& quest)
         ++shape.ItemObjectives;
     }
     return shape;
+}
+
+uint8 TeamOf(Player const& bot)
+{
+    return bot.GetTeamId() == TEAM_ALLIANCE ? RandomPlayerbotLevels::Alliance : RandomPlayerbotLevels::Horde;
+}
+
+// Givers and quest mobs only count inside the bot's levelling zones, so quest
+// chains do not pull bots into left-out areas such as the Ruins of Gilneas.
+bool ZoneFitsBot(uint32 zoneId, Player const& bot)
+{
+    return RandomPlayerbotLevels::ZoneFits(zoneId, bot.getLevel(), TeamOf(bot));
 }
 
 uint8 TeamsOf(CreatureTemplate const& info)
@@ -357,7 +368,7 @@ Creature* FindGiver(Player& bot, RandomPlayerbotQuests::BotState& state, uint32 
     {
         Creature* creature = unit ? unit->ToCreature() : nullptr;
         if (!creature || !creature->IsQuestGiver() || creature->IsInCombat() || bot.IsHostileTo(creature) ||
-            state.SkippedGivers.count(creature->GetGUID().GetRawValue()))
+            state.SkippedGivers.count(creature->GetGUID().GetRawValue()) || !ZoneFitsBot(creature->GetZoneId(), bot))
             continue;
         float distance = bot.GetDistance(creature);
         if (distance < bestDistance && HasWork(bot, state, *creature))
@@ -394,7 +405,7 @@ Point const* NearestHuntSpawn(Player const& bot)
             continue;
         for (Point const& point : found->second)
         {
-            if (point.Map != bot.GetMapId())
+            if (point.Map != bot.GetMapId() || !ZoneFitsBot(point.Zone, bot))
                 continue;
             float dx = point.X - bot.GetPositionX(), dy = point.Y - bot.GetPositionY();
             float distance = dx * dx + dy * dy;
@@ -431,11 +442,19 @@ void RandomPlayerbotQuests::BuildIndex()
     uint32 started = getMSTime();
 
     // Spawned creature entries in the open world, with their positions.
+    // CreatureData has no zone; the creature table carries it.
+    std::unordered_map<uint64, uint16> spawnZones;
+    if (QueryResult result = WorldDatabase.Query("SELECT guid, zoneId FROM creature"))
+    {
+        do
+            spawnZones[(*result)[0].GetUInt32()] = (*result)[1].GetUInt16();
+        while (result->NextRow());
+    }
     std::unordered_map<uint32, std::vector<Point>> spawns;
     for (auto const& [spawnId, data] : sObjectMgr->GetAllCreatureData())
         if (OpenWorld(data.mapId) && (data.phaseId == 0 || data.phaseId == DEFAULT_PHASE) && !data.phaseGroup &&
             data.terrainSwapMap == -1)
-            spawns[data.id].push_back({ uint16(data.mapId), data.spawnPoint.GetPositionX(),
+            spawns[data.id].push_back({ uint16(data.mapId), spawnZones[uint64(spawnId)], data.spawnPoint.GetPositionX(),
                 data.spawnPoint.GetPositionY(), data.spawnPoint.GetPositionZ(), data.spawnPoint.GetOrientation() });
 
     // Entries that count for each kill objective: the target itself and creatures crediting it.
@@ -699,7 +718,7 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
     if (!Ready())
         return false;
     uint32 level = std::min<uint32>(bot.getLevel(), RandomPlayerbotLevels::MaxLevel);
-    uint8 team = bot.GetTeamId() == TEAM_ALLIANCE ? RandomPlayerbotLevels::Alliance : RandomPlayerbotLevels::Horde;
+    uint8 team = TeamOf(bot);
     std::vector<uint32> const& bucket = GiversByLevel[level];
     for (uint32 attempt = 0; attempt < MaxGiverAttempts && !bucket.empty(); ++attempt)
     {
@@ -713,9 +732,7 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot)
                 offers = true;
         if (!offers)
             continue;
-        uint32 zoneId = 0, areaId = 0;
-        sTerrainMgr.GetZoneAndAreaId(PhasingHandler::GetEmptyPhaseShift(), zoneId, areaId, giver.Pos.Map,
-            giver.Pos.X, giver.Pos.Y, giver.Pos.Z);
+        uint32 zoneId = giver.Pos.Zone;
         if (!RandomPlayerbotLevels::ZoneFits(zoneId, level, team))
             continue;
         // A few steps in front of the giver, facing it.
