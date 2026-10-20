@@ -50,6 +50,7 @@ constexpr uint32 ApprenticeRiding = 33388;
 constexpr uint32 AllianceMount = 458;  // Brown Horse
 constexpr uint32 HordeMount = 580;     // Timber Wolf
 constexpr uint32 CallPetSpell = 883;
+constexpr uint32 RevivePetSpell = 982;
 constexpr uint32 TameBeast = 1515;
 // Plain beasts every hunter can tame: Young Wolf, Prairie Wolf, Dire Mottled Boar, Ice Claw Bear,
 // Durotar Tiger, Large Crag Boar.
@@ -799,6 +800,22 @@ bool RandomPlayerbotProgression::EnsureHunterPet(Player& bot)
     bot.PetSpellInitialize();
     TC_LOG_DEBUG("module.playerbots", "PB-RANDOM: hunter %s tamed a %s", bot.GetName().c_str(), pet->GetName().c_str());
     return true;
+}
+
+void RandomPlayerbotProgression::KeepHunterPet(Player& bot)
+{
+    if (bot.getClass() != CLASS_HUNTER || !bot.IsAlive() || bot.IsInCombat() || bot.IsMounted() || bot.IsInFlight() ||
+        bot.IsNonMeleeSpellCast(false) || bot.IsPetNeedBeTemporaryUnsummoned())
+        return;
+    // Revive Pet needs the pet out, even as a corpse; Call Pet brings it either way.
+    if (Pet* pet = bot.GetPet())
+    {
+        if (!pet->IsAlive() && bot.HasSpell(RevivePetSpell))
+            bot.CastSpell(&bot, RevivePetSpell, true);
+        return;
+    }
+    if (bot.HasSpell(CallPetSpell) && bot.GetPlayerPetDataBySlot(PET_SLOT_FIRST_ACTIVE_SLOT))
+        bot.CastSpell(&bot, CallPetSpell, true);
 }
 
 uint32_t RandomPlayerbotProgression::MountSpell(Player const& bot)

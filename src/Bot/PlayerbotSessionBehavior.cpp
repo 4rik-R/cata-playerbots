@@ -1847,6 +1847,11 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         _hunterPetChecked = true;
         RandomPlayerbotProgression::EnsureHunterPet(*bot);
     }
+    if (getMSTimeDiff(_hunterPetKeptMs, now) >= 10000)
+    {
+        _hunterPetKeptMs = now;
+        RandomPlayerbotProgression::KeepHunterPet(*bot);
+    }
 
     // A questing bot with nothing left around it moves on to another quest giver.
     if (_questState.WantsRelocation.exchange(false) && _soloActive.load() && !bot->GetGroup() &&

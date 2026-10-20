@@ -48,6 +48,8 @@ void PlaceInCapital(uint32_t guidLow);
 void CompleteStartChain(Player& bot);
 // Hunters with Call Pet but no pet in the slot Call Pet brings tame a beast. True when a pet was added.
 bool EnsureHunterPet(Player& bot);
+// Out of combat and on foot: hunters call their first stable pet and revive it when it is dead.
+void KeepHunterPet(Player& bot);
 // The ground mount the bot learned with riding (any thread), or 0.
 uint32_t MountSpell(Player const& bot);
 }
