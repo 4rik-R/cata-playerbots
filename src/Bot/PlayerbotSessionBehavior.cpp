@@ -41,6 +41,7 @@
 #include "RotationAiObjectContext.h"
 #include "World.h"
 #include "Random.h"
+#include "Random/RandomPlayerbotCapital.h"
 #include "Random/RandomPlayerbotMgr.h"
 #include "Random/RandomPlayerbotGrind.h"
 #include "Random/RandomPlayerbotGrindTarget.h"
@@ -1416,7 +1417,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                     RandomPlayerbotGrind::ReadyToPull(false, _player->GetHealthPct(), mana, usesMana))
                 {
                     // Mobs an open quest needs first, from further out; none on a journey.
-                    if (!_questState.Journeying())
+                    if (!_questState.Journeying() && !_questState.Visiting())
                     {
                         target = RandomPlayerbotQuests::SelectQuestTarget(*_player);
                         if (!target)
@@ -1696,6 +1697,7 @@ void PlayerbotSessionBehavior::UpdateSoloController()
         // A journey is dropped: the bot goes where its party goes.
         _questState.Trip = {};
         _questState.TripFailed = false;
+        RandomPlayerbotCapital::Abort(_questState);
         RandomPlayerbotQuests::Dismount(*bot, _questState);
         _soloRecovering = false;
         _soloDeadMs = 0;
@@ -1754,7 +1756,10 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
             bot->SetStandState(UNIT_STAND_STATE_STAND);
     }
 
-    // Quest givers and quest mobs come before idle wandering.
+    // A capital visit comes before questing; quest givers and quest mobs come before idle wandering.
+    if (_soloHomeSet && RandomPlayerbotQuests::Enabled() && PlayerbotCombatMovement::CanMove(*bot) &&
+        RandomPlayerbotCapital::Update(_session, *bot, _questState, _soloHome, getMSTime()))
+        return;
     if (_soloHomeSet && RandomPlayerbotQuests::Enabled() && PlayerbotCombatMovement::CanMove(*bot) &&
         RandomPlayerbotQuests::Update(_session, *bot, _questState, _soloHome, getMSTime()))
         return;
@@ -1788,8 +1793,9 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         !RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
         return;
 
-    // A relocation to another map needs the client's worldport acknowledgement.
-    if (_progressFarTeleport && bot->IsBeingTeleportedFar())
+    // A relocation or hearthstone to another map needs the client's worldport acknowledgement.
+    bool hearthing = _questState.Visit.Stage == RandomPlayerbotQuests::CapitalVisit::Step::Hearthing;
+    if ((_progressFarTeleport || hearthing) && bot->IsBeingTeleportedFar())
     {
         _progressFarTeleport = false;
         _session.HandleMoveWorldportAck();
@@ -1868,7 +1874,8 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         _soloHomeReset = true;
         return;
     }
-    if (_questState.Journeying())
+    // A bot in its capital stays until it sets out again.
+    if (_questState.Journeying() || _questState.Visiting())
         return;
 
     // A questing bot with nothing left around it moves on to another quest giver.

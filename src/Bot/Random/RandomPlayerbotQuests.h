@@ -30,6 +30,7 @@ enum class Activity : uint8_t
     Travelling, // on the way to a quest spot or turn-in
     Grinding,   // nothing to quest here: fighting what is around
     Flying,     // on a journey to another quest hub: riding to a flight master, flying or riding on
+    Visiting,   // home in the capital: hearthstone, vendor, trainer, a stroll
 };
 
 // A move to another quest hub: by flight when that saves riding, else on the mount.
@@ -50,6 +51,34 @@ struct Journey
     uint32_t Cost = 0;
     uint32_t StartedMs = 0;
     uint32_t Stalls = 0;
+};
+
+// A stay in the capital, from the hearthstone to setting out again.
+struct CapitalVisit
+{
+    enum class Step : uint8_t
+    {
+        None,
+        Hearthing, // casting the hearthstone, or on the way home
+        Errands,   // repairing and selling, then the class trainer
+        Browsing,  // standing around at bankers, auctioneers and innkeepers
+    };
+    struct Errand
+    {
+        uint8_t Kind = 0;
+        uint32_t Entry = 0;
+        Position Pos;
+        uint32_t PauseMs = 0; // standing there once arrived
+    };
+    Step Stage = Step::None;
+    uint32_t StepSinceMs = 0;
+    uint32_t LeaveMs = 0;
+    std::vector<Errand> Errands;
+    std::size_t Next = 0;
+    bool Arrived = false; // at the current errand, pausing
+    uint32_t VisitLevel = 0; // level of the next visit, 0 until first checked
+    uint32_t RetryMs = 0;
+    uint32_t NextCheckMs = 0;
 };
 
 // Per bot, owned by its session behavior on the map thread (WantsRelocation is read by the world thread).
@@ -84,10 +113,12 @@ struct BotState
     Activity Doing = Activity::None;
     Journey Trip;
     std::atomic<bool> TripFailed { false }; // set on the map thread, finished by teleport on the world thread
+    CapitalVisit Visit;
 
     ~BotState();
     void ClearSpot() { HasSpot = false; SpotArrivedMs = 0; TravelCheckMs = 0; }
     bool Journeying() const { return Trip.Stage != Journey::Leg::None; }
+    bool Visiting() const { return Visit.Stage != CapitalVisit::Step::None; }
 };
 
 void Configure(bool enabled);
@@ -110,6 +141,11 @@ Creature* SelectQuestTarget(Player& bot);
 bool RelocateToGiver(Player& bot, BotState* state = nullptr);
 // World thread. Teleports a bot whose journey failed to its goal.
 bool FinishFailedTrip(Player& bot, BotState& state);
+// Counts the bot under an activity for the status line.
+void Track(BotState& state, Activity activity);
+// Random bots counted under any activity.
+uint32_t ActiveBots();
+uint32_t CountOf(Activity activity);
 std::string Describe();
 }
 
