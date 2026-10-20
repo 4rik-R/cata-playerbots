@@ -50,9 +50,9 @@ constexpr uint32 PaceMs = 500;
 
 enum Kind : uint8
 {
-    Repair = 1, // repair and sell, at a vendor who repairs
-    Trainer,    // the class trainer
-    Browse,     // banker, auctioneer or innkeeper
+    RepairNpc = 1, // repair and sell, at a vendor who repairs
+    TrainerNpc,    // the class trainer
+    BrowseNpc,     // banker, auctioneer or innkeeper
 };
 
 struct CityNpc
@@ -96,7 +96,7 @@ CityNpc const* Nearest(Player const& bot, uint8 kind)
     float bestDistance = 0.0f;
     for (CityNpc const& npc : CityNpcs)
     {
-        if (npc.Kind != kind || !Serves(npc, bot) || (kind == Trainer && npc.Class != bot.getClass()))
+        if (npc.Kind != kind || !Serves(npc, bot) || (kind == TrainerNpc && npc.Class != bot.getClass()))
             continue;
         float distance = bot.GetExactDist2d(npc.X, npc.Y);
         if (!best || distance < bestDistance)
@@ -112,7 +112,7 @@ CityNpc const* AnyBrowse(Player const& bot)
 {
     std::vector<CityNpc const*> options;
     for (CityNpc const& npc : CityNpcs)
-        if (npc.Kind == Browse && Serves(npc, bot))
+        if (npc.Kind == BrowseNpc && Serves(npc, bot))
             options.push_back(&npc);
     return options.empty() ? nullptr : options[urand(0, uint32(options.size()) - 1)];
 }
@@ -123,7 +123,7 @@ RandomPlayerbotQuests::CapitalVisit::Errand ErrandAt(CityNpc const& npc)
     errand.Kind = npc.Kind;
     errand.Entry = npc.Entry;
     errand.Pos.Relocate(npc.X, npc.Y, npc.Z);
-    errand.PauseMs = npc.Kind == Browse ? urand(BrowseMinMs, BrowseMaxMs) : ErrandPauseMs;
+    errand.PauseMs = npc.Kind == BrowseNpc ? urand(BrowseMinMs, BrowseMaxMs) : ErrandPauseMs;
     return errand;
 }
 
@@ -304,9 +304,9 @@ bool RunErrands(WorldSession& session, Player& bot, RandomPlayerbotQuests::BotSt
     if (!npc)
         return true;
     bot.SetFacingToObject(npc);
-    if (errand.Kind == Repair)
+    if (errand.Kind == RepairNpc)
         RepairAndSell(session, bot, *npc);
-    else if (errand.Kind == Trainer)
+    else if (errand.Kind == TrainerNpc)
         bot.HandleEmoteCommand(EMOTE_ONESHOT_TALK);
     visit.Arrived = true;
     visit.StepSinceMs = now ? now : 1;
@@ -338,11 +338,11 @@ void RandomPlayerbotCapital::BuildIndex()
             continue;
         uint8 kind = 0;
         if ((info->npcflag & UNIT_NPC_FLAG_REPAIR) && (info->npcflag & UNIT_NPC_FLAG_VENDOR))
-            kind = Repair;
+            kind = RepairNpc;
         else if ((info->npcflag & UNIT_NPC_FLAG_TRAINER_CLASS) && info->trainer_class)
-            kind = Trainer;
+            kind = TrainerNpc;
         else if (info->npcflag & (UNIT_NPC_FLAG_BANKER | UNIT_NPC_FLAG_AUCTIONEER | UNIT_NPC_FLAG_INNKEEPER))
-            kind = Browse;
+            kind = BrowseNpc;
         uint8 teams = TeamsOf(*info);
         if (!kind || !teams)
             continue;
@@ -354,7 +354,7 @@ void RandomPlayerbotCapital::BuildIndex()
     for (CityNpc const& npc : CityNpcs)
         ++counts[npc.Kind];
     TC_LOG_INFO("module.playerbots", "Random playerbots: capitals have %u repairers, %u class trainers, %u bankers, "
-        "auctioneers and innkeepers.", counts[Repair], counts[Trainer], counts[Browse]);
+        "auctioneers and innkeepers.", counts[RepairNpc], counts[TrainerNpc], counts[BrowseNpc]);
 }
 
 bool RandomPlayerbotCapital::Update(WorldSession& session, Player& bot, RandomPlayerbotQuests::BotState& state,
@@ -380,7 +380,7 @@ bool RandomPlayerbotCapital::Update(WorldSession& session, Player& bot, RandomPl
                 visit.Errands.clear();
                 visit.Next = 0;
                 visit.Arrived = false;
-                for (uint8 kind : { uint8(Repair), uint8(Trainer) })
+                for (uint8 kind : { uint8(RepairNpc), uint8(TrainerNpc) })
                     if (CityNpc const* npc = Nearest(bot, kind))
                         visit.Errands.push_back(ErrandAt(*npc));
                 visit.StepSinceMs = now ? now : 1;
