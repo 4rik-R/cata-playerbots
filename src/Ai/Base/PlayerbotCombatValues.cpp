@@ -21,6 +21,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ThreatManager.h"
+#include "PlayerbotSessionHooks.h"
 #include "WorldSession.h"
 #include <set>
 
@@ -92,7 +93,7 @@ protected:
         {
             // The role follows implemented strategies, not unported Shadow/talent roles.
             if (!PlayerbotDpsEstimate::BasicDps(member->getLevel()) ||
-                (member->getClass() != CLASS_WARRIOR && member->getClass() != CLASS_MAGE && member->getClass() != CLASS_PRIEST))
+                !PlayerbotModuleSupportsClass(member->getClass()))
                 return 0.0f;
             dps += PlayerbotDpsEstimate::Contribution(member->getLevel(), MixedGearScore(*member),
                 IsImplementedTank(*member), PlayerbotRoles::IsHealer(*member));

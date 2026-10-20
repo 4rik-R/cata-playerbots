@@ -34,7 +34,8 @@ FollowPosition PositionFor(Player const& bot, Player const& owner)
 
     std::sort(roster.begin(), roster.end());
     auto it = std::find(roster.begin(), roster.end(), bot.GetGUID().GetCounter());
-    bool caster = bot.getClass() == CLASS_MAGE || bot.getClass() == CLASS_PRIEST;
+    bool caster = bot.getClass() == CLASS_MAGE || bot.getClass() == CLASS_PRIEST ||
+        bot.getClass() == CLASS_HUNTER || bot.getClass() == CLASS_WARLOCK;
     if (it == roster.end())
         return WithCasterSpacing(PositionForSlot(0, 1), caster);
     return WithCasterSpacing(PositionForSlot(std::size_t(it - roster.begin()), roster.size()), caster);

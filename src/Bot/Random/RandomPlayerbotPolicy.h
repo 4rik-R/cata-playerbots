@@ -27,6 +27,7 @@ struct RandomPlayerbotSettings
     uint32_t LoginPerInterval = 10;
     uint32_t IntervalMs = 20000;
     uint32_t AllianceRatio = 50; // percent
+    uint32_t ClassMask = 0;      // bit (class - 1); 0 means every class in RandomPlayerbotClasses
 };
 
 // Uppercase Latin letters and digits only, so the generated names survive native normalization.
@@ -75,7 +76,40 @@ inline uint32_t RandomPlayerbotLoginBudget(uint32_t online, uint32_t loading, ui
 // Playable races without phased starting areas (Worgen 22 and Goblin 9 come later).
 constexpr std::array<uint8_t, 5> RandomPlayerbotAllianceRaces = {1, 3, 4, 7, 11};
 constexpr std::array<uint8_t, 5> RandomPlayerbotHordeRaces = {2, 5, 6, 8, 10};
-constexpr std::array<uint8_t, 3> RandomPlayerbotClasses = {1, 8, 5}; // Warrior, Mage, Priest
+// Classes with a combat AI: Warrior, Mage, Priest, Rogue, Hunter, Warlock.
+constexpr std::array<uint8_t, 6> RandomPlayerbotClasses = {1, 8, 5, 4, 3, 9};
+
+// "4, 3,9" -> class mask. Unknown or unsupported ids are skipped; empty means all.
+inline uint32_t ParseRandomPlayerbotClasses(std::string const& text)
+{
+    uint32_t mask = 0, value = 0;
+    bool digits = false;
+    auto flush = [&]()
+    {
+        if (digits && std::find(RandomPlayerbotClasses.begin(), RandomPlayerbotClasses.end(), value) !=
+            RandomPlayerbotClasses.end())
+            mask |= 1u << (value - 1);
+        value = 0;
+        digits = false;
+    };
+    for (char c : text)
+    {
+        if (c >= '0' && c <= '9')
+        {
+            value = std::min<uint32_t>(value * 10 + uint32_t(c - '0'), 100);
+            digits = true;
+        }
+        else
+            flush();
+    }
+    flush();
+    return mask;
+}
+
+inline bool RandomPlayerbotClassEnabled(uint32_t classMask, uint8_t classId)
+{
+    return !classMask || (classMask & (1u << (classId - 1)));
+}
 
 struct RandomPlayerbotProfile
 {
@@ -87,12 +121,22 @@ struct RandomPlayerbotProfile
 // Roll returns a uniformly distributed value in [0, bound). The caller filters
 // pairs without native creation data and retries with fresh rolls.
 template<class Roll>
-RandomPlayerbotProfile RollRandomPlayerbotProfile(uint32_t allianceRatio, Roll roll)
+RandomPlayerbotProfile RollRandomPlayerbotProfile(uint32_t allianceRatio, Roll roll, uint32_t classMask = 0)
 {
     bool alliance = roll(100u) < allianceRatio;
     uint8_t race = alliance ? RandomPlayerbotAllianceRaces[roll(uint32_t(RandomPlayerbotAllianceRaces.size()))] :
         RandomPlayerbotHordeRaces[roll(uint32_t(RandomPlayerbotHordeRaces.size()))];
-    uint8_t classId = RandomPlayerbotClasses[roll(uint32_t(RandomPlayerbotClasses.size()))];
+    std::array<uint8_t, RandomPlayerbotClasses.size()> enabled{};
+    uint32_t count = 0;
+    for (uint8_t classId : RandomPlayerbotClasses)
+        if (RandomPlayerbotClassEnabled(classMask, classId))
+            enabled[count++] = classId;
+    if (!count)
+    {
+        enabled = RandomPlayerbotClasses;
+        count = uint32_t(enabled.size());
+    }
+    uint8_t classId = enabled[roll(count)];
     return {race, classId, uint8_t(roll(2u))};
 }
 
