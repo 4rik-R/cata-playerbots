@@ -7,7 +7,7 @@
 
 using namespace RandomPlayerbotQuestPolicy;
 
-TEST_CASE("Random quests: only plain kill and collect quests are taken", "[playerbots][random][quest]")
+TEST_CASE("Random quests: only plain kill, collect and object quests are taken", "[playerbots][random][quest]")
 {
     Shape kill;
     kill.KillObjectives = 1;
@@ -17,9 +17,9 @@ TEST_CASE("Random quests: only plain kill and collect quests are taken", "[playe
     REQUIRE(Classify(collect) == Verdict::Supported);
 
     REQUIRE(Classify(Shape{}) == Verdict::NoObjective);
-    Shape object = kill;
+    Shape object;
     object.GameObjectObjectives = 1;
-    REQUIRE(Classify(object) == Verdict::GameObject);
+    REQUIRE(Classify(object) == Verdict::Supported);
 
     auto with = [&](auto field)
     {
@@ -82,4 +82,63 @@ TEST_CASE("Random quests: reward is the best upgrade, else the most valuable ite
     REQUIRE(ChooseReward(noUpgrade) == 1);
     // An empty slot is always an upgrade.
     REQUIRE(ChooseReward({ { 0, false, 30, 0, 999 }, { 3, true, 5, 0, 1 } }) == 3);
+}
+
+TEST_CASE("Random quests: points inside quest-map markers", "[playerbots][random][quest]")
+{
+    std::vector<MapPoint> square = { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } };
+    REQUIRE(InPolygon(square, 5, 5));
+    REQUIRE_FALSE(InPolygon(square, 15, 5));
+    REQUIRE_FALSE(InPolygon(square, 5, -1));
+    // An L shape: the inner corner is outside.
+    std::vector<MapPoint> ell = { { 0, 0 }, { 10, 0 }, { 10, 4 }, { 4, 4 }, { 4, 10 }, { 0, 10 } };
+    REQUIRE(InPolygon(ell, 2, 8));
+    REQUIRE_FALSE(InPolygon(ell, 8, 8));
+
+    uint32_t state = 12345;
+    auto roll = [&] { state = state * 1103515245u + 12345u; return double((state >> 8) & 0xFFFF) / 65536.0; };
+    for (int i = 0; i < 500; ++i)
+    {
+        MapPoint point = RandomPointIn(ell, roll);
+        REQUIRE(InPolygon(ell, point.X, point.Y));
+    }
+    // Single points and lines fall back to their middle.
+    MapPoint single = RandomPointIn({ { 3, 4 } }, roll);
+    REQUIRE(single.X == 3);
+    REQUIRE(single.Y == 4);
+    MapPoint line = RandomPointIn({ { 0, 0 }, { 10, 20 } }, roll);
+    REQUIRE(line.X == 5);
+    REQUIRE(line.Y == 10);
+    REQUIRE(RandomPointIn({}, roll).X == 0);
+}
+
+TEST_CASE("Random quests: a spot without progress is given up after five minutes", "[playerbots][random][quest]")
+{
+    REQUIRE_FALSE(SpotStalled(SpotStallMs - 1, 0, 0));
+    REQUIRE(SpotStalled(SpotStallMs, 0, 0));
+    // Progress after arriving restarts the wait.
+    REQUIRE_FALSE(SpotStalled(SpotStallMs + 1000, 0, 2000));
+    REQUIRE(SpotStalled(SpotStallMs + 2000, 0, 2000));
+    // Arriving late restarts it as well.
+    REQUIRE_FALSE(SpotStalled(SpotStallMs + 1000, 2000, 0));
+    // The millisecond clock wraps around.
+    REQUIRE(SpotStalled(SpotStallMs - 100, 0xFFFFFF00u, 0xFFFFFF00u));
+}
+
+TEST_CASE("Random quests: a full log drops grey quests, then ones bots cannot do", "[playerbots][random][quest]")
+{
+    std::vector<LogEntry> log = {
+        { 1, false, true },
+        { 2, false, false }, // not doable
+        { 3, true, true },   // grey
+        { 4, true, false },  // grey
+        { 5, false, true },
+    };
+    REQUIRE(LogCleanup(log, 2).empty());
+    REQUIRE(LogCleanup(log, 1) == std::vector<uint32_t>{ 3 });
+    REQUIRE(LogCleanup(log, 0) == std::vector<uint32_t>{ 3, 4 });
+    std::vector<LogEntry> doable = { { 1, false, true }, { 2, false, false } };
+    REQUIRE(LogCleanup(doable, 0) == std::vector<uint32_t>{ 2 });
+    // Quests bots can do stay, even when the log stays full.
+    REQUIRE(LogCleanup({ { 1, false, true } }, 0).empty());
 }

@@ -14,6 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 class Creature;
 class Player;
@@ -32,12 +33,26 @@ struct BotState
     ObjectGuid Giver;
     uint32_t GiverSinceMs = 0;
     std::unordered_map<uint64_t, uint32_t> SkippedGivers; // giver guid -> skipped until
+    // Quest object the bot walks to or is opening.
+    ObjectGuid Object;
+    uint32_t ObjectSinceMs = 0;
+    std::unordered_map<uint64_t, uint32_t> SkippedObjects; // object guid -> skipped until
     std::unordered_map<uint32_t, Progress> Quests;
     std::unordered_set<uint32_t> Shelved; // abandoned this session, not taken again
+    // Where the bot works on its quests: a mob or object spawn, a quest-map marker or a turn-in.
+    bool HasSpot = false;
+    Position Spot;
+    uint32_t SpotArrivedMs = 0;
+    uint32_t LastProgressMs = 0;
+    std::vector<Position> TriedSpots; // given up on until the next progress
+    Position TravelCheck;
+    uint32_t TravelCheckMs = 0;
+    bool Riding = false; // mounted by questing travel
     uint32_t NextScanMs = 0;
     uint32_t IdleSinceMs = 0;
-    bool Hunting = false;
     std::atomic<bool> WantsRelocation { false };
+
+    void ClearSpot() { HasSpot = false; SpotArrivedMs = 0; TravelCheckMs = 0; }
 };
 
 void Configure(bool enabled);
@@ -46,10 +61,13 @@ bool Enabled();
 void BuildIndex();
 bool Ready();
 
-// Map thread. Turns in and accepts quests at nearby givers, abandons stalled quests
-// and moves the bot's home towards mobs its quests need. True while the bot walks
-// to a giver or a hunting spot, so the caller skips idle wandering.
+// Map thread. Turns in and accepts quests at nearby givers, abandons stalled quests,
+// opens quest objects and moves the bot's home to where its quests are done: mob
+// and object spawns, quest-map markers and turn-ins. True while the bot walks or
+// rides somewhere, so the caller skips idle wandering.
 bool Update(WorldSession& session, Player& bot, BotState& state, Position& home, uint32_t nowMs);
+// Map thread. Leaves a mount the bot took for questing travel.
+void Dismount(Player& bot, BotState& state);
 // Map thread. Nearest creature in QuestTargetRange that counts for an open quest.
 Creature* SelectQuestTarget(Player& bot);
 // World thread. Teleports the bot next to a quest giver with quests for it.

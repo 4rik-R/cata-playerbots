@@ -7,6 +7,7 @@
 #ifndef CATA_RANDOM_PLAYERBOT_QUEST_POLICY_H
 #define CATA_RANDOM_PLAYERBOT_QUEST_POLICY_H
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -29,6 +30,28 @@ constexpr uint32_t IdleRelocateMs = 5 * 60 * 1000;
 // Quests at most this many levels above the bot.
 constexpr uint32_t MaxLevelsAbove = 3;
 constexpr uint32_t EscortQuestInfo = 84;
+
+// Quest objects (chests, plants, crates) searched around the bot.
+constexpr float ObjectRange = 40.0f;
+// An object a real player stands next to is left to them.
+constexpr float PlayerClaimRange = 10.0f;
+// Quest areas and turn-ins a bot walks or rides to, within its zone.
+constexpr float TravelRange = 1500.0f;
+// Bots with a mount ride to targets further away than this.
+constexpr float RideDistance = 120.0f;
+constexpr uint32_t ObjectTimeoutMs = 30000;
+// At a quest spot without progress for this long, the bot tries another spot.
+constexpr uint32_t SpotStallMs = 5 * 60 * 1000;
+constexpr float TriedSpotRadius = 60.0f;
+constexpr uint32_t MaxTriedSpots = 16;
+// Travel that gains less than this in TravelCheckMs counts as stuck.
+constexpr uint32_t TravelCheckMs = 30000;
+constexpr float TravelMinGain = 5.0f;
+// The log is tidied when fewer slots than this are free.
+constexpr uint32_t MinFreeLogSlots = 2;
+// quest_poi objective indexes: -1 is the turn-in, 0-3 kill or object objectives, 4-9 item objectives.
+constexpr int32_t TurnInObjective = -1;
+constexpr int32_t ItemObjectiveBase = 4;
 
 // Facts read from quest_template and its addon; computed once at startup.
 struct Shape
@@ -53,7 +76,7 @@ enum class Verdict : uint8_t
     Unavailable, // deprecated, repeating, timed, escort or group
     Scripted,
     NoObjective, // talk-to and delivery quests come with M4.3
-    GameObject,  // using objects comes with M4.2
+    GameObject,  // needs objects that are not spawned in the open world (counted by the index)
 };
 
 inline Verdict Classify(Shape const& shape)
@@ -62,9 +85,7 @@ inline Verdict Classify(Shape const& shape)
         return Verdict::Unavailable;
     if (shape.Scripted || shape.NeedsSpell || shape.Currency || shape.PlayerKills)
         return Verdict::Scripted;
-    if (shape.GameObjectObjectives)
-        return Verdict::GameObject;
-    if (!shape.KillObjectives && !shape.ItemObjectives)
+    if (!shape.KillObjectives && !shape.GameObjectObjectives && !shape.ItemObjectives)
         return Verdict::NoObjective;
     return Verdict::Supported;
 }
@@ -130,6 +151,81 @@ inline uint8_t ChooseReward(std::vector<RewardOption> const& options)
         if (!best || option.SellPrice > best->SellPrice)
             best = &option;
     return best ? best->Slot : 0;
+}
+
+struct MapPoint
+{
+    float X = 0.0f;
+    float Y = 0.0f;
+};
+
+// Even-odd rule; points on an edge may count either way.
+inline bool InPolygon(std::vector<MapPoint> const& polygon, float x, float y)
+{
+    bool inside = false;
+    for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++)
+    {
+        MapPoint const& a = polygon[i];
+        MapPoint const& b = polygon[j];
+        if ((a.Y > y) != (b.Y > y) && x < (b.X - a.X) * (y - a.Y) / (b.Y - a.Y) + a.X)
+            inside = !inside;
+    }
+    return inside;
+}
+
+// A random point inside a quest-map marker. roll() returns a value in [0, 1).
+// Markers too thin to hit fall back to the average of their corners.
+template<class Roll>
+MapPoint RandomPointIn(std::vector<MapPoint> const& polygon, Roll roll, uint32_t attempts = 30)
+{
+    if (polygon.empty())
+        return {};
+    MapPoint low = polygon.front(), high = polygon.front(), mean;
+    for (MapPoint const& point : polygon)
+    {
+        low = { std::min(low.X, point.X), std::min(low.Y, point.Y) };
+        high = { std::max(high.X, point.X), std::max(high.Y, point.Y) };
+        mean.X += point.X / polygon.size();
+        mean.Y += point.Y / polygon.size();
+    }
+    if (polygon.size() >= 3)
+        for (uint32_t i = 0; i < attempts; ++i)
+        {
+            MapPoint candidate = { low.X + (high.X - low.X) * float(roll()), low.Y + (high.Y - low.Y) * float(roll()) };
+            if (InPolygon(polygon, candidate.X, candidate.Y))
+                return candidate;
+        }
+    return mean;
+}
+
+// Neither the arrival at the spot nor the last progress is SpotStallMs old.
+inline bool SpotStalled(uint32_t nowMs, uint32_t arrivedMs, uint32_t lastProgressMs)
+{
+    return uint32_t(nowMs - arrivedMs) >= SpotStallMs && uint32_t(nowMs - lastProgressMs) >= SpotStallMs;
+}
+
+struct LogEntry
+{
+    uint32_t Id = 0;
+    bool Gray = false;   // no experience any more
+    bool Doable = false; // a quest bots can finish on their own
+};
+
+// Quests to abandon so that MinFreeLogSlots stay free: grey ones first, then
+// ones bots cannot do. Quests a bot can still do are never dropped.
+inline std::vector<uint32_t> LogCleanup(std::vector<LogEntry> const& log, uint32_t freeSlots)
+{
+    std::vector<uint32_t> drop;
+    for (bool grayPass : { true, false })
+        for (LogEntry const& entry : log)
+        {
+            if (freeSlots + drop.size() >= MinFreeLogSlots)
+                return drop;
+            bool pick = grayPass ? entry.Gray : (!entry.Gray && !entry.Doable);
+            if (pick)
+                drop.push_back(entry.Id);
+        }
+    return drop;
 }
 }
 

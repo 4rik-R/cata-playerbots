@@ -40,6 +40,8 @@ bool Relocate(Player& bot);
 bool InPhasedStart(Player const& bot);
 // Binds the bot in Stormwind or Orgrimmar and starts the teleport there.
 bool MoveToCapital(Player& bot);
+// The ground mount the bot learned with riding (any thread), or 0.
+uint32_t MountSpell(Player const& bot);
 }
 
 #endif

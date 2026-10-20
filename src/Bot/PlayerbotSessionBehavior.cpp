@@ -1672,7 +1672,8 @@ void PlayerbotSessionBehavior::UpdateSoloController()
     {
         _soloHomeSet = false; // relocated by the world thread: grind around the new spot
         _questState.Giver.Clear();
-        _questState.Hunting = false;
+        _questState.Object.Clear();
+        _questState.ClearSpot();
     }
     if (solo)
     {
@@ -1717,9 +1718,12 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
     }
     _soloDeadMs = 0;
 
+    // A mount taken for questing travel is left as soon as a fight starts.
+    if (_questState.Riding && (_serverOriginAttacking.load() || bot->IsInCombat()))
+        RandomPlayerbotQuests::Dismount(*bot, _questState);
     if (_serverOriginAttacking.load() || bot->IsInCombat() || _ai.GetRestSpellId() ||
         _ai.LootRequests().Pending() || _ai.LootPursuit().Active() || bot->IsNonMeleeSpellCast(false) ||
-        bot->IsMounted() || bot->IsInFlight())
+        (bot->IsMounted() && !_questState.Riding) || bot->IsInFlight())
         return;
 
     int32 maximum = bot->GetMaxPower(POWER_MANA);
@@ -1727,6 +1731,7 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
     float mana = usesMana ? 100.0f * bot->GetPower(POWER_MANA) / maximum : 100.0f;
     if (!RandomPlayerbotGrind::ReadyToPull(_soloRecovering, bot->GetHealthPct(), mana, usesMana))
     {
+        RandomPlayerbotQuests::Dismount(*bot, _questState);
         if (!_soloRecovering && !bot->isMoving())
         {
             _soloRecovering = true;
@@ -1785,7 +1790,9 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         return;
     }
     _progressFarTeleport = false;
-    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !bot->IsAlive() || bot->IsInCombat())
+    // Gilneas, Kezan and Acherus keep a bot in fights with their scripted NPCs; leaving them must not wait for peace.
+    bool phasedStart = RandomPlayerbotProgression::InPhasedStart(*bot);
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !bot->IsAlive() || (bot->IsInCombat() && !phasedStart))
         return;
     uint32 now = getMSTime();
     if (getMSTimeDiff(_progressCheckMs, now) < 1000)
@@ -1815,12 +1822,13 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
     }
 
     // Death knights, Worgen and Goblins leave Acherus, Gilneas and Kezan for their capital first.
-    if (!bot->GetGroup() && level > RandomPlayerbotLevels::StartZoneLevel &&
-        RandomPlayerbotProgression::InPhasedStart(*bot))
+    if (!bot->GetGroup() && level > RandomPlayerbotLevels::StartZoneLevel && phasedStart)
     {
         if (_progressRelocateMs && getMSTimeDiff(_progressRelocateMs, now) < 60000)
             return;
         _progressRelocateMs = now ? now : 1;
+        if (bot->IsInCombat())
+            bot->CombatStop(true);
         if (RandomPlayerbotProgression::MoveToCapital(*bot))
         {
             _progressFarTeleport = bot->IsBeingTeleportedFar();
@@ -1829,6 +1837,9 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         }
         return;
     }
+
+    if (bot->IsInCombat())
+        return;
 
     // A questing bot with nothing left around it moves on to another quest giver.
     if (_questState.WantsRelocation.exchange(false) && _soloActive.load() && !bot->GetGroup() &&
