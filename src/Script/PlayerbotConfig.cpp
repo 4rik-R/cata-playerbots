@@ -10,6 +10,7 @@
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotMgr.h"
 #include "RandomPlayerbotProgression.h"
+#include "RandomPlayerbotQuests.h"
 #include "Config.h"
 #include "Log.h"
 #include "World.h"
@@ -169,6 +170,9 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
     progression.MinLevel = uint32(std::max(1, sConfigMgr->GetIntDefault("Playerbots.Random.Level.Min", 1)));
     progression.MaxLevel = uint32(std::max(1, sConfigMgr->GetIntDefault("Playerbots.Random.Level.Max", 85)));
     RandomPlayerbotProgression::Configure(progression);
+    // Questing runs inside the grind loop and places bots by level.
+    RandomPlayerbotQuests::Configure(RandomGrindEnabled.load(std::memory_order_relaxed) && progression.Enabled &&
+        sConfigMgr->GetBoolDefault("Playerbots.Random.Quest.Enabled", false));
     SetPlayerbotAddonBridgeEnabled(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.MultiBot.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_ENABLED, moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Dev.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_GREETING_ENABLED, sConfigMgr->GetBoolDefault("Playerbots.Dev.GreetingOnJoin", true));

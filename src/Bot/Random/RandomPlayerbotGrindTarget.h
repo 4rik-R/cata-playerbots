@@ -10,6 +10,8 @@ class Player;
 
 namespace RandomPlayerbotGrind
 {
+// Map-thread only. Untapped, idle, normal-rank creature in the bot's level band and line of sight.
+bool Eligible(Player& bot, Creature& creature);
 // Map-thread only. Nearest untapped, idle, normal-rank creature in the bot's
 // level band within PullRange and line of sight; nullptr if none qualifies.
 Creature* SelectTarget(Player& bot);

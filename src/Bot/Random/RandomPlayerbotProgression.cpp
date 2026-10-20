@@ -7,6 +7,7 @@
 #include "RandomPlayerbotProgression.h"
 #include "../../Ai/Class/Rotation/PlayerbotClassRotation.h"
 #include "RandomPlayerbotLevels.h"
+#include "RandomPlayerbotQuests.h"
 #include "../../Ai/Base/PlayerbotRestItem.h"
 #include "Bag.h"
 #include "CreatureData.h"
@@ -718,6 +719,9 @@ bool RandomPlayerbotProgression::Relocate(Player& bot)
 {
     if (!IndexesReady || SpawnsByLevel.empty())
         return false;
+    // Questing bots start next to a quest giver of a fitting zone.
+    if (RandomPlayerbotQuests::RelocateToGiver(bot))
+        return true;
     uint8 team = TeamOf(bot);
     FactionTemplateEntry const* own = sFactionTemplateStore.LookupEntry(team == Alliance ? AllianceFactionTemplate : HordeFactionTemplate);
     uint32 level = bot.getLevel();

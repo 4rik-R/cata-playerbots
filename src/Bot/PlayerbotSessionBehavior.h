@@ -21,6 +21,7 @@
 #include "StateEngines.h"
 #include "../Ai/Base/PlayerbotCombatMovement.h"
 #include "Cmd/PlayerbotStrategyControl.h"
+#include "Random/RandomPlayerbotQuests.h"
 #include <atomic>
 #include <memory>
 class PlayerbotSessionBehavior final : public PlayerbotSessionHooks
@@ -153,6 +154,8 @@ private:
     uint32 _progressCheckMs = 0;
     uint32 _progressRelocateMs = 0;
     bool _progressFarTeleport = false;
+    // Map-owned questing state (WantsRelocation is consumed by the world thread).
+    RandomPlayerbotQuests::BotState _questState;
 
 };
 #endif
