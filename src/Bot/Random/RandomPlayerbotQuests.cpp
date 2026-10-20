@@ -765,10 +765,12 @@ bool Travel(Player& bot, RandomPlayerbotQuests::BotState& state, Position& home,
         home = state.Spot;
         return false;
     }
-    if (!state.TravelCheckMs || getMSTimeDiff(state.TravelCheckMs, now) >= TravelCheckMs)
+    uint32 sinceCheck = state.TravelCheckMs ? getMSTimeDiff(state.TravelCheckMs, now) : 0;
+    if (!state.TravelCheckMs || sinceCheck >= TravelCheckMs)
     {
-        // Stuck behind something: give this spot up.
-        if (state.TravelCheckMs && bot.GetExactDist2d(&state.TravelCheck) < TravelMinGain)
+        // Stuck behind something: give this spot up. A long gap (a fight, resting) is no measure.
+        if (state.TravelCheckMs && sinceCheck < 2 * TravelCheckMs &&
+            bot.GetExactDist2d(&state.TravelCheck) < TravelMinGain)
         {
             if (state.TriedSpots.size() >= MaxTriedSpots)
                 state.TriedSpots.erase(state.TriedSpots.begin());
