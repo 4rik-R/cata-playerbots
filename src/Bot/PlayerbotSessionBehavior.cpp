@@ -635,7 +635,29 @@ void PlayerbotSessionBehavior::UpdateWorld()
     PlayerbotRepair::Update(_session, _repairCommands);
     PlayerbotQuestAccept::Update(_session, _questAcceptCommands);
     PlayerbotQuestShare::Update(_session, _questShareAttempt);
-    if (!PlayerbotModuleLootRollEnabled()) _rollCommands.Cancel();
+    if (RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
+    {
+        // Random bots always roll greed, so the humans in their group get first pick and no roll waits on them.
+        _rollCommands.Cancel();
+        Player* bot = _session.GetPlayer();
+        Group* group = bot ? bot->GetGroup() : nullptr;
+        uint32 now = getMSTime();
+        PlayerbotLootRoll roll;
+        if (group && bot->IsInWorld() && !bot->IsBeingTeleported() && uint32(now - _rollPollTime) >= 500 &&
+            (_rollPollTime = now, group->GetPlayerbotPendingLootRoll(*bot, roll)))
+        {
+            uint8 choice = PlayerbotLootRoll::Admits(true, roll.Mask, ROLL_GREED) ? uint8(ROLL_GREED) : uint8(ROLL_PASS);
+            if (group->ValidatePlayerbotLootVote(*bot, roll, choice))
+            {
+                WorldPacket packet(CMSG_LOOT_ROLL, 13);
+                packet << ObjectGuid(roll.Roll) << uint32(roll.Slot) << choice;
+                _session.HandleLootRoll(packet);
+                TC_LOG_INFO("module.playerbots", "PB-ROLL: %s rolled %s on item %u", bot->GetName().c_str(),
+                    choice == ROLL_GREED ? "greed" : "pass", roll.Entry);
+            }
+        }
+    }
+    else if (!PlayerbotModuleLootRollEnabled()) _rollCommands.Cancel();
     else
     {
         Player* bot = _session.GetPlayer();
@@ -1051,8 +1073,13 @@ void PlayerbotSessionBehavior::UpdateServerOriginParty()
         }
     }
 
-    if (_player->GetGroup())
+    if (Group* group = _player->GetGroup())
+    {
+        if (!_serverOriginPartyControllerGuidLow.load() && group->isLFGGroup() &&
+            RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
+            AdoptDungeonGroupHuman(*group);
         return;
+    }
 
     Group* invitation = _player->GetGroupInvite();
     if (!invitation)
@@ -1090,6 +1117,35 @@ void PlayerbotSessionBehavior::UpdateServerOriginParty()
         TC_LOG_INFO("module.playerbots", "PB-PARTY: %s joined followed leader GUID %u's party; controller adopted from invitation", _player->GetName().c_str(), ownerGuidLow);
         PlayerbotGroup::GreetOnJoin(*_player, *owner);
     }
+}
+
+void PlayerbotSessionBehavior::AdoptDungeonGroupHuman(Group& group)
+{
+    // A dungeon-finder group has no invitation to adopt a controller from: the bot follows a human in its dungeon,
+    // the leader first, once both are on the same map.
+    Player* bot = _session.GetPlayer();
+    Player* human = nullptr;
+    for (GroupReference* ref = group.GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || member == bot || member->GetSession()->IsServerOrigin() || !member->IsInWorld() ||
+            member->GetMap() != bot->GetMap())
+            continue;
+        if (!human || group.IsLeader(member->GetGUID()))
+            human = member;
+    }
+    if (!human)
+        return;
+    uint32 humanGuidLow = human->GetGUID().GetCounter();
+    _serverOriginPartyLeaderGuidLow = humanGuidLow;
+    RequestServerOriginCease();
+    if (human->IsAlive() && bot->IsAlive())
+        RequestServerOriginFollow(humanGuidLow);
+    else
+        RequestServerOriginHold();
+    _serverOriginPartyControllerGuidLow.store(humanGuidLow);
+    TC_LOG_INFO("module.playerbots", "PB-LFG: %s follows %s in its dungeon group", bot->GetName().c_str(), human->GetName().c_str());
+    PlayerbotGroup::GreetOnJoin(*bot, *human);
 }
 
 void PlayerbotSessionBehavior::UpdateServerOriginResurrection()
@@ -1799,9 +1855,9 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         !RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
         return;
 
-    // A relocation, hearthstone, ship or portal to another map needs the client's worldport acknowledgement.
-    bool hearthing = _questState.Visit.Stage == RandomPlayerbotQuests::CapitalVisit::Step::Hearthing;
-    if ((_progressFarTeleport || hearthing || _questState.Voyaging()) && bot->IsBeingTeleportedFar())
+    // A relocation, hearthstone, ship, portal or dungeon-finder teleport to another map needs the client's worldport
+    // acknowledgement; a random bot has no client, so every far teleport is acknowledged here.
+    if (bot->IsBeingTeleportedFar())
     {
         _progressFarTeleport = false;
         _session.HandleMoveWorldportAck();

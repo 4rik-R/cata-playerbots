@@ -24,6 +24,8 @@
 #include "Random/RandomPlayerbotQuests.h"
 #include <atomic>
 #include <memory>
+
+class Group;
 class PlayerbotSessionBehavior final : public PlayerbotSessionHooks
 {
 public:
@@ -57,6 +59,7 @@ private:
     void UpdateServerOriginMovement(uint32 diff);
     void CompleteNearTeleport();
     void UpdateServerOriginParty();
+    void AdoptDungeonGroupHuman(Group& group);
     void UpdateServerOriginResurrection();
     void UpdateServerOriginInstanceJoin();
     void UpdateServerOriginCombat(uint32 diff);

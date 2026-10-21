@@ -375,6 +375,16 @@ Playerbots.Random.Grind.Enabled = 0
 #                     and Goblins at 10 or higher; all three skip their phased
 #                     start areas, are bound in Stormwind or Orgrimmar and move
 #                     on from there. Requires Playerbots.Random.Enabled.
+#                     In the dungeon finder, free bots of the human's faction
+#                     queue for the roles a human's queue still lacks (tank,
+#                     healer, damage, by their spec), within 3 levels of the
+#                     human. If none is near, the highest lower bot with that
+#                     role is raised to the human's level first. Bots accept
+#                     the group, follow a human in the dungeon, and leave the
+#                     dungeon and the group 5 seconds after the last human left
+#                     it (2 minutes when the humans are only offline). The
+#                     status line counts queued bots, dungeon groups, bots in
+#                     dungeons, joins, raised bots, refused joins and departures.
 #        Default:     0 - (Disabled)
 #                     1 - (Enabled)
 #

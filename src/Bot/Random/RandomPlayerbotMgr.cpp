@@ -8,6 +8,8 @@
 #include "RandomPlayerbotCapital.h"
 #include "RandomPlayerbotCrossings.h"
 #include "RandomPlayerbotFactory.h"
+#include "RandomPlayerbotLfg.h"
+#include "RandomPlayerbotLfgPolicy.h"
 #include "RandomPlayerbotProgression.h"
 #include "RandomPlayerbotQuests.h"
 #include "NativeCharacterCreationReceipt.h"
@@ -48,6 +50,7 @@ namespace
     RandomPlayerbotSettings Settings;
     std::vector<RandomBotSlot> Slots;
     uint32 Timer = 0;
+    uint32 LfgTimer = 0;
     bool Paused = false;
     bool ResetPending = false;
     bool ResumeAfterReset = false;
@@ -286,6 +289,19 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
 {
     if (!Settings.Enabled)
         return;
+    // The dungeon finder is looked at more often than bots are admitted.
+    LfgTimer += diff;
+    if (LfgTimer >= RandomPlayerbotLfgPolicy::PaceMs && !Paused && !ResetPending && RandomPlayerbotProgression::Ready() &&
+        !sWorld->IsStopped() && !sWorld->IsShuttingDown())
+    {
+        LfgTimer = 0;
+        std::vector<Player*> bots;
+        for (RandomBotSlot const& slot : Slots)
+            if (slot.GuidLow)
+                if (Player* bot = ObjectAccessor::FindPlayerByLowGUID(slot.GuidLow))
+                    bots.push_back(bot);
+        RandomPlayerbotLfg::Update(bots);
+    }
     Timer += diff;
     if (Timer < Settings.IntervalMs)
         return;
@@ -392,7 +408,7 @@ std::string RandomPlayerbotMgr::Describe()
             std::to_string(RandomPlayerbotProgression::GetSettings().MinLevel) + "-" +
             std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) +
         ", " + RandomPlayerbotQuests::Describe() + "; " + RandomPlayerbotCapital::Describe() + "; " +
-        RandomPlayerbotCrossings::Describe() + ".";
+        RandomPlayerbotCrossings::Describe() + "; " + RandomPlayerbotLfg::Describe() + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)
