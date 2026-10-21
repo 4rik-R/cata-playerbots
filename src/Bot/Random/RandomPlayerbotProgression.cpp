@@ -925,8 +925,8 @@ uint8_t RandomPlayerbotProgression::DungeonRole(Player const& bot)
 {
     switch (RoleOf(bot))
     {
-        case Role::Tank: return PLAYER_ROLE_TANK;
-        case Role::Healer: return PLAYER_ROLE_HEALER;
-        default: return PLAYER_ROLE_DAMAGE;
+        case Role::Tank: return lfg::PLAYER_ROLE_TANK;
+        case Role::Healer: return lfg::PLAYER_ROLE_HEALER;
+        default: return lfg::PLAYER_ROLE_DAMAGE;
     }
 }
