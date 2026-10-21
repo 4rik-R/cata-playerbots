@@ -20,6 +20,7 @@
 #include "LFG.h"
 #include "Log.h"
 #include "Map.h"
+#include "ObjectAccessor.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "SpellAuraEffects.h"
@@ -28,6 +29,7 @@
 #include "WorldSession.h"
 #include <atomic>
 #include <list>
+#include <map>
 #include <mutex>
 #include <set>
 #include <utility>
@@ -289,10 +291,18 @@ void RandomPlayerbotDungeon::UpdateMarks(Player& tank, Creature* target, State& 
     }
 
     std::vector<Enemy> enemies;
+    std::map<uint64_t, ObjectGuid> guids;
+    for (ObjectGuid const& mark : current)
+        guids[mark.GetRawValue()] = mark;
+    if (target)
+        guids[target->GetGUID().GetRawValue()] = target->GetGUID();
     for (Creature* creature : HostilesAround(tank, tank, 30.0f))
         if (FightsGroup(*creature, *group))
+        {
+            guids[creature->GetGUID().GetRawValue()] = creature->GetGUID();
             enemies.push_back({ creature->GetGUID().GetRawValue(), float(creature->GetHealth()),
                 !Boss(*creature) && Controller(*group, *creature) != nullptr, Boss(*creature) });
+        }
     uint64_t tankTarget = target && target->IsAlive() ? target->GetGUID().GetRawValue() : 0;
     Marks fixed { current[0].GetRawValue(), current[1].GetRawValue(), current[2].GetRawValue() };
     Marks planned = PlanMarks(tankTarget, enemies, fixed);
@@ -301,8 +311,7 @@ void RandomPlayerbotDungeon::UpdateMarks(Player& tank, Creature* target, State& 
     {
         if (!wanted[i] || wanted[i] == group->GetTargetIcon(MarkIcons[i]).GetRawValue())
             continue;
-        ObjectGuid guid;
-        guid.SetRawValue(wanted[i]);
+        ObjectGuid guid = guids[wanted[i]];
         group->SetTargetIcon(MarkIcons[i], tank.GetGUID(), guid);
         state.Marked[i] = guid;
         ++MarkCount;
