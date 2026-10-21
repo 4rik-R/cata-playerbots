@@ -5,6 +5,7 @@
  * d750b4b. See AUTHORS.md and PORTING.md. Released under GNU GPL v2 or any later version.
  */
 #include "RandomPlayerbotQuests.h"
+#include "RandomPlayerbotCrossings.h"
 #include "RandomPlayerbotGrind.h"
 #include "RandomPlayerbotGrindTarget.h"
 #include "RandomPlayerbotLevels.h"
@@ -91,7 +92,7 @@ std::unordered_map<uint32, std::vector<uint32>> OpenSpells;
 std::vector<Giver> Givers;
 std::vector<std::vector<uint32>> GiversByLevel; // level -> index into Givers
 uint32 VerdictCounts[5] = {};
-std::atomic<uint32> ActivityCounts[6] = {};
+std::atomic<uint32> ActivityCounts[7] = {};
 
 // Flight masters in the open world and the taxi node each serves.
 struct Master
@@ -881,7 +882,8 @@ Master const* NearestMaster(uint32 map, float x, float y, uint8 team)
 // Plans the way to a goal on the bot's map: false when only a teleport gets it there.
 bool PlanJourney(Player& bot, RandomPlayerbotQuests::BotState& state, uint32 map, Position const& goal)
 {
-    if (bot.GetMapId() != map || !OpenWorld(map) || bot.IsInFlight() || bot.GetTransport())
+    if (bot.GetMapId() != map || !OpenWorld(map) || bot.IsInFlight() || bot.GetTransport() ||
+        RegionOf(map, bot.GetPositionX(), bot.GetPositionY()) != RegionOf(map, goal.GetPositionX(), goal.GetPositionY()))
         return false;
     RandomPlayerbotQuests::Journey trip;
     trip.Map = map;
@@ -1570,7 +1572,9 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot, BotState* state)
         return false;
     // A few steps in front of the giver, facing it.
     float x = best->Pos.X + 4.0f * std::cos(best->Pos.O), y = best->Pos.Y + 4.0f * std::sin(best->Pos.O);
-    if (state && PlanJourney(bot, *state, best->Pos.Map, Position(x, y, best->Pos.Z, best->Pos.O + float(M_PI))))
+    Position goal(x, y, best->Pos.Z, best->Pos.O + float(M_PI));
+    if (state && (PlanJourney(bot, *state, best->Pos.Map, goal) ||
+        RandomPlayerbotCrossings::PlanVoyage(bot, *state, best->Pos.Map, goal)))
         return true;
     if (!bot.TeleportTo(best->Pos.Map, x, y, best->Pos.Z + 0.5f, best->Pos.O + float(M_PI)))
         return false;
@@ -1578,6 +1582,11 @@ bool RandomPlayerbotQuests::RelocateToGiver(Player& bot, BotState* state)
     TC_LOG_DEBUG("module.playerbots", "PB-QUEST: %s level %u sent to a quest hub of %u givers in zone %u",
         bot.GetName().c_str(), level, best->HubSize, uint32(best->Pos.Zone));
     return true;
+}
+
+bool RandomPlayerbotQuests::SetOut(Player& bot, BotState& state, uint32_t map, Position const& goal)
+{
+    return PlanJourney(bot, state, map, goal);
 }
 
 bool RandomPlayerbotQuests::FinishFailedTrip(Player& bot, BotState& state)

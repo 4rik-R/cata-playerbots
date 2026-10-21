@@ -809,7 +809,7 @@ bool RandomPlayerbotProgression::EnsureHunterPet(Player& bot)
 void RandomPlayerbotProgression::KeepHunterPet(Player& bot)
 {
     if (bot.getClass() != CLASS_HUNTER || !bot.IsAlive() || bot.IsInCombat() || bot.IsMounted() || bot.IsInFlight() ||
-        bot.IsNonMeleeSpellCast(false) || bot.IsPetNeedBeTemporaryUnsummoned())
+        bot.GetTransport() || bot.IsNonMeleeSpellCast(false) || bot.IsPetNeedBeTemporaryUnsummoned())
         return;
     // Revive Pet needs the pet out, even as a corpse; Call Pet brings it either way.
     if (Pet* pet = bot.GetPet())

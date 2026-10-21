@@ -198,7 +198,7 @@ bool StartVisit(Player& bot, RandomPlayerbotQuests::BotState& state, uint32 now)
 {
     RandomPlayerbotQuests::CapitalVisit& visit = state.Visit;
     uint32 level = bot.getLevel();
-    if (state.Journeying() || level <= RandomPlayerbotLevels::StartZoneLevel || bot.GetMap()->Instanceable() ||
+    if (state.Journeying() || state.Voyaging() || level <= RandomPlayerbotLevels::StartZoneLevel || bot.GetMap()->Instanceable() ||
         RandomPlayerbotProgression::InPhasedStart(bot) || bot.GetTransport() || bot.IsInFlight() || bot.IsInCombat())
         return false;
     if (visit.RetryMs && int32(visit.RetryMs - now) > 0)

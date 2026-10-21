@@ -31,6 +31,7 @@ enum class Activity : uint8_t
     Grinding,   // nothing to quest here: fighting what is around
     Flying,     // on a journey to another quest hub: riding to a flight master, flying or riding on
     Visiting,   // home in the capital: hearthstone, vendor, trainer, a stroll
+    Sailing,    // crossing to another continent: at a dock, aboard a ship or zeppelin, through a portal
 };
 
 // A move to another quest hub: by flight when that saves riding, else on the mount.
@@ -81,6 +82,27 @@ struct CapitalVisit
     uint32_t NextCheckMs = 0;
 };
 
+// A move to another continent or landmass: ships, zeppelins and portals, then a journey to the goal.
+struct Voyage
+{
+    enum class Step : uint8_t
+    {
+        None,
+        ToDock,  // on the way to the dock, portal or walk-in portal
+        Waiting, // at the dock until the ship or zeppelin is in
+        Aboard,
+        Through, // stepped through a portal, arriving
+    };
+    Step Stage = Step::None;
+    std::vector<uint32_t> Crossings; // in order, from RandomPlayerbotCrossings
+    std::size_t Next = 0;
+    uint32_t GoalMap = 0;
+    Position Goal;
+    uint32_t StartedMs = 0;
+    uint32_t StepSinceMs = 0;
+    uint32_t NextCheckMs = 0;
+};
+
 // Per bot, owned by its session behavior on the map thread (WantsRelocation is read by the world thread).
 struct BotState
 {
@@ -114,11 +136,13 @@ struct BotState
     Journey Trip;
     std::atomic<bool> TripFailed { false }; // set on the map thread, finished by teleport on the world thread
     CapitalVisit Visit;
+    Voyage Sea;
 
     ~BotState();
     void ClearSpot() { HasSpot = false; SpotArrivedMs = 0; TravelCheckMs = 0; }
     bool Journeying() const { return Trip.Stage != Journey::Leg::None; }
     bool Visiting() const { return Visit.Stage != CapitalVisit::Step::None; }
+    bool Voyaging() const { return Sea.Stage != Voyage::Step::None; }
 };
 
 void Configure(bool enabled);
@@ -139,6 +163,8 @@ Creature* SelectQuestTarget(Player& bot);
 // World thread. Sends the bot to a quest giver with quests for it: on a journey when a state
 // is given and the giver is on the same continent, else by teleport.
 bool RelocateToGiver(Player& bot, BotState* state = nullptr);
+// Any thread that owns the bot. Sets out on a journey to a goal in the bot's region; false when only a teleport gets there.
+bool SetOut(Player& bot, BotState& state, uint32_t map, Position const& goal);
 // World thread. Teleports a bot whose journey failed to its goal.
 bool FinishFailedTrip(Player& bot, BotState& state);
 // Counts the bot under an activity for the status line.

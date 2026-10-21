@@ -42,6 +42,7 @@
 #include "World.h"
 #include "Random.h"
 #include "Random/RandomPlayerbotCapital.h"
+#include "Random/RandomPlayerbotCrossings.h"
 #include "Random/RandomPlayerbotMgr.h"
 #include "Random/RandomPlayerbotGrind.h"
 #include "Random/RandomPlayerbotGrindTarget.h"
@@ -1417,7 +1418,7 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
                     RandomPlayerbotGrind::ReadyToPull(false, _player->GetHealthPct(), mana, usesMana))
                 {
                     // Mobs an open quest needs first, from further out; none on a journey.
-                    if (!_questState.Journeying() && !_questState.Visiting())
+                    if (!_questState.Journeying() && !_questState.Visiting() && !_questState.Voyaging())
                     {
                         target = RandomPlayerbotQuests::SelectQuestTarget(*_player);
                         if (!target)
@@ -1698,6 +1699,7 @@ void PlayerbotSessionBehavior::UpdateSoloController()
         _questState.Trip = {};
         _questState.TripFailed = false;
         RandomPlayerbotCapital::Abort(_questState);
+        RandomPlayerbotCrossings::Abort(*bot, _questState);
         RandomPlayerbotQuests::Dismount(*bot, _questState);
         _soloRecovering = false;
         _soloDeadMs = 0;
@@ -1733,6 +1735,10 @@ void PlayerbotSessionBehavior::UpdateSoloGrind(uint32 diff)
     if (_serverOriginAttacking.load() || bot->IsInCombat() || _ai.GetRestSpellId() ||
         _ai.LootRequests().Pending() || _ai.LootPursuit().Active() || bot->IsNonMeleeSpellCast(false) ||
         (bot->IsMounted() && !_questState.Riding) || bot->IsInFlight())
+        return;
+
+    // A voyage goes on before resting: a bot aboard a ship must get off at its stop.
+    if (RandomPlayerbotQuests::Enabled() && RandomPlayerbotCrossings::Update(*bot, _questState, getMSTime()))
         return;
 
     int32 maximum = bot->GetMaxPower(POWER_MANA);
@@ -1793,9 +1799,9 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         !RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
         return;
 
-    // A relocation or hearthstone to another map needs the client's worldport acknowledgement.
+    // A relocation, hearthstone, ship or portal to another map needs the client's worldport acknowledgement.
     bool hearthing = _questState.Visit.Stage == RandomPlayerbotQuests::CapitalVisit::Step::Hearthing;
-    if ((_progressFarTeleport || hearthing) && bot->IsBeingTeleportedFar())
+    if ((_progressFarTeleport || hearthing || _questState.Voyaging()) && bot->IsBeingTeleportedFar())
     {
         _progressFarTeleport = false;
         _session.HandleMoveWorldportAck();
@@ -1874,8 +1880,8 @@ void PlayerbotSessionBehavior::UpdateRandomProgression()
         _soloHomeReset = true;
         return;
     }
-    // A bot in its capital stays until it sets out again.
-    if (_questState.Journeying() || _questState.Visiting())
+    // A bot in its capital stays until it sets out again; one on a voyage until it arrives.
+    if (_questState.Journeying() || _questState.Visiting() || _questState.Voyaging())
         return;
 
     // A questing bot with nothing left around it moves on to another quest giver.
