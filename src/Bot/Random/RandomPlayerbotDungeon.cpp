@@ -30,6 +30,7 @@
 #include <list>
 #include <mutex>
 #include <set>
+#include <utility>
 #include <vector>
 
 using namespace RandomPlayerbotDungeonPolicy;
@@ -93,17 +94,18 @@ bool FightsGroup(Creature const& creature, Group const& group)
     return false;
 }
 
-// A group bot that could crowd-control this creature with a spell it knows.
+// A group bot that could crowd-control this creature with a spell it knows; a healer only when nobody else can.
 Player* Controller(Group const& group, Creature const& creature)
 {
     Player* best = nullptr;
+    auto rank = [](Player const* member) { return std::make_pair(PlayerbotRoles::IsHealer(*member), member->GetGUID()); };
     for (GroupReference const* ref = group.GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->GetSource();
         if (!member || IsHuman(member) || !member->IsInWorld() || !member->IsAlive() || member->GetMap() != creature.GetMap())
             continue;
         CrowdControlSpell const* spell = CrowdControlFor(member->getClass(), creature.GetCreatureType());
-        if (spell && member->HasSpell(spell->SpellId) && (!best || member->GetGUID() < best->GetGUID()))
+        if (spell && member->HasSpell(spell->SpellId) && (!best || rank(member) < rank(best)))
             best = member;
     }
     return best;
