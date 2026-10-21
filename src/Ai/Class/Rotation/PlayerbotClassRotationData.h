@@ -45,6 +45,7 @@ enum class When : uint8_t
     TargetNotOnMe,      // taunt: the target attacks someone else
     FireTotemMissing,   // no fire totem of this bot near the target
     ComboFinisherDot,   // finisher ready, target healthy and this bot's bleed missing
+    Enemies3,           // at least three fighting enemies around the target, none of them crowd-controlled
 };
 
 struct Step
@@ -62,6 +63,7 @@ constexpr Step RogueCombat[] = {
     { 1766, "Kick", When::TargetCasting, Target::Enemy },
     { 5277, "Evasion", When::SelfBelow35, Target::Self },
     { 5171, "Slice and Dice", When::ComboBuff, Target::Self },
+    { 51723, "Fan of Knives", When::Enemies3, Target::Self },
     { 2098, "Eviscerate", When::ComboFinisher, Target::Enemy },
     { 1752, "Sinister Strike", When::Always, Target::Enemy },
 };
@@ -74,6 +76,7 @@ constexpr Step HunterCombat[] = {
     { 53351, "Kill Shot", When::TargetBelow20, Target::Enemy },
     { 1978, "Serpent Sting", When::MyDotMissing, Target::Enemy },
     { 34026, "Kill Command", When::PetAttacking, Target::Enemy },
+    { 2643, "Multi-Shot", When::Enemies3, Target::Enemy },
     { 3044, "Arcane Shot", When::FocusAtLeast50, Target::Enemy },
     { 56641, "Steady Shot", When::NotInMelee, Target::Enemy },
     { 3044, "Arcane Shot", When::NotInMelee, Target::Enemy },
@@ -86,6 +89,7 @@ constexpr Step WarlockCombat[] = {
     { 980, "Bane of Agony", When::MyDotMissing, Target::Enemy },
     { 172, "Corruption", When::MyDotMissing, Target::Enemy },
     { 348, "Immolate", When::MyDotMissing, Target::Enemy },
+    { 27243, "Seed of Corruption", When::Enemies3, Target::Enemy },
     { 686, "Shadow Bolt", When::Always, Target::Enemy },
 };
 
@@ -101,6 +105,7 @@ constexpr Step PaladinRetribution[] = {
     { 20154, "Seal of Righteousness", When::SelfAuraMissing, Target::Self, 0, 31801 },
     { 24275, "Hammer of Wrath", When::TargetBelow20, Target::Enemy },
     { 85256, "Templar's Verdict", When::HolyPower3, Target::Enemy },
+    { 53385, "Divine Storm", When::Enemies3, Target::Self },
     { 35395, "Crusader Strike", When::InMelee, Target::Enemy },
     { 20271, "Judgement", When::Always, Target::Enemy },
     { 879, "Exorcism", When::Always, Target::Enemy },
@@ -117,6 +122,7 @@ constexpr Step PaladinProtection[] = {
     { 31935, "Avenger's Shield", When::Always, Target::Enemy },
     { 53600, "Shield of the Righteous", When::HolyPower3, Target::Enemy },
     { 24275, "Hammer of Wrath", When::TargetBelow20, Target::Enemy },
+    { 53595, "Hammer of the Righteous", When::Enemies3, Target::Enemy },
     { 35395, "Crusader Strike", When::InMelee, Target::Enemy },
     { 20271, "Judgement", When::Always, Target::Enemy },
     { 26573, "Consecration", When::InMelee, Target::Self },
@@ -149,6 +155,7 @@ constexpr Step ShamanCaster[] = {
     { 3599, "Searing Totem", When::FireTotemMissing, Target::Self },
     { 8050, "Flame Shock", When::MyDotMissing, Target::Enemy },
     { 51505, "Lava Burst", When::Always, Target::Enemy },
+    { 421, "Chain Lightning", When::Enemies3, Target::Enemy },
     { 403, "Lightning Bolt", When::Always, Target::Enemy },
 };
 
@@ -162,6 +169,7 @@ constexpr Step ShamanEnhancement[] = {
     { 73899, "Primal Strike", When::InMelee, Target::Enemy, 0, 17364 },
     { 60103, "Lava Lash", When::InMelee, Target::Enemy },
     { 8050, "Flame Shock", When::MyDotMissing, Target::Enemy },
+    { 1535, "Fire Nova", When::Enemies3, Target::Self },
     { 8042, "Earth Shock", When::Always, Target::Enemy },
     { 403, "Lightning Bolt", When::NotInMelee, Target::Enemy },
 };
@@ -173,6 +181,7 @@ constexpr Step DruidCaster[] = {
     { 774, "Rejuvenation", When::SelfHotMissing, Target::Self },
     { 5570, "Insect Swarm", When::MyDotMissing, Target::Enemy },
     { 8921, "Moonfire", When::MyDotMissing, Target::Enemy },
+    { 48505, "Starfall", When::Enemies3, Target::Self },
     { 78674, "Starsurge", When::Always, Target::Enemy },
     { 5176, "Wrath", When::Always, Target::Enemy },
 };
@@ -183,7 +192,25 @@ constexpr Step DruidCat[] = {
     { 22568, "Ferocious Bite", When::ComboFinisher, Target::Enemy },
     { 1822, "Rake", When::MyDotMissing, Target::Enemy },
     { 33876, "Mangle", When::AnyAuraMissing, Target::Enemy },
+    { 62078, "Swipe", When::Enemies3, Target::Enemy },
     { 1082, "Claw", When::Always, Target::Enemy },
+};
+
+// Feral druids that tank in a group: Bear Form holds the pack with Thrash and Swipe.
+constexpr Step DruidBear[] = {
+    { 5487, "Bear Form", When::SelfAuraMissing, Target::Self },
+    { 61336, "Survival Instincts", When::SelfBelow20, Target::Self },
+    { 22842, "Frenzied Regeneration", When::SelfBelow35, Target::Self },
+    { 22812, "Barkskin", When::SelfBelow35, Target::Self },
+    { 80964, "Skull Bash", When::TargetCasting, Target::Enemy },
+    { 6795, "Growl", When::TargetNotOnMe, Target::Enemy },
+    { 33878, "Mangle", When::InMelee, Target::Enemy },
+    { 77758, "Thrash", When::Enemies3, Target::Self },
+    { 779, "Swipe", When::Enemies3, Target::Enemy },
+    { 99, "Demoralizing Roar", When::AnyAuraMissing, Target::Self },
+    { 33745, "Lacerate", When::InMelee, Target::Enemy },
+    { 6807, "Maul", When::InMelee, Target::Enemy },
+    { 16857, "Faerie Fire (Feral)", When::Always, Target::Enemy },
 };
 
 // Death knights: diseases first, then the spec's strike; Death Coil or Frost
@@ -195,6 +222,7 @@ constexpr Step DeathKnightBlood[] = {
     { 49576, "Death Grip", When::TargetNotOnMe, Target::Enemy },
     { 45477, "Icy Touch", When::MyDotMissing, Target::Enemy, 55095 },
     { 45462, "Plague Strike", When::MyDotMissing, Target::Enemy, 55078 },
+    { 48721, "Blood Boil", When::Enemies3, Target::Self },
     // Blood spends frost and unholy runes on Death Strike for its self-heal.
     { 49998, "Death Strike", When::InMelee, Target::Enemy },
     { 55050, "Heart Strike", When::InMelee, Target::Enemy },
@@ -222,10 +250,22 @@ constexpr Step DeathKnightUnholy[] = {
     { 49998, "Death Strike", When::SelfBelow40, Target::Enemy },
     { 45477, "Icy Touch", When::MyDotMissing, Target::Enemy, 55095 },
     { 45462, "Plague Strike", When::MyDotMissing, Target::Enemy, 55078 },
+    { 48721, "Blood Boil", When::Enemies3, Target::Self },
     { 55090, "Scourge Strike", When::InMelee, Target::Enemy },
     { 85948, "Festering Strike", When::InMelee, Target::Enemy },
     { 45902, "Blood Strike", When::InMelee, Target::Enemy, 0, 85948 },
     { 47541, "Death Coil", When::Always, Target::Enemy },
+};
+
+// Warriors and mages fight through their own strategies; these area spells come first on a pack.
+constexpr Step WarriorAoe[] = {
+    { 6343, "Thunder Clap", When::Enemies3, Target::Self },
+    { 1680, "Whirlwind", When::Enemies3, Target::Self },
+    { 845, "Cleave", When::Enemies3, Target::Enemy },
+};
+
+constexpr Step MageAoe[] = {
+    { 2120, "Flamestrike", When::Enemies3, Target::Enemy },
 };
 
 // Out of combat, before the next pull.
@@ -283,6 +323,15 @@ constexpr uint32_t WarlockImp = 688;
 constexpr uint32_t ShamanWindfury = 8232;
 constexpr uint32_t ShamanFlametongue = 8024;
 constexpr uint32_t DruidCatForm = 768;
+constexpr uint32_t DruidBearForm = 5487;
+constexpr uint8_t ClassWarrior = 1, ClassMage = 8;
+
+// Half of the feral druids tank: the choice is stable per character, so the dungeon finder can rely on it.
+inline bool FeralTank(uint32_t guidLow)
+{
+    uint32_t hash = (guidLow + 13u) * 2654435761u;
+    return ((hash >> 16) & 1u) != 0;
+}
 
 // Self buffs of one group replace each other, so any of them counts as worn.
 // Unused places are 0.
@@ -304,7 +353,8 @@ constexpr uint32_t TreeDruidBalance = 752, TreeDruidFeral = 750, TreeDruidRestor
 constexpr uint32_t TreeDeathKnightBlood = 398, TreeDeathKnightFrost = 399, TreeDeathKnightUnholy = 400;
 
 // catForm: the druid already knows Cat Form; Feral fights as a caster before that.
-inline std::span<Step const> CombatSteps(uint8_t playerClass, uint32_t tree = 0, bool catForm = false)
+// bear: a tanking feral druid that knows Bear Form.
+inline std::span<Step const> CombatSteps(uint8_t playerClass, uint32_t tree = 0, bool catForm = false, bool bear = false)
 {
     switch (playerClass)
     {
@@ -317,6 +367,8 @@ inline std::span<Step const> CombatSteps(uint8_t playerClass, uint32_t tree = 0,
         case ClassShaman:
             return tree == TreeShamanEnhancement ? std::span<Step const>(ShamanEnhancement) : std::span<Step const>(ShamanCaster);
         case ClassDruid:
+            if (tree == TreeDruidFeral && bear)
+                return DruidBear;
             return tree == TreeDruidFeral && catForm ? std::span<Step const>(DruidCat) : std::span<Step const>(DruidCaster);
         case ClassDeathKnight:
             return tree == TreeDeathKnightBlood ? std::span<Step const>(DeathKnightBlood) :
@@ -343,14 +395,24 @@ inline std::span<Step const> UpkeepSteps(uint8_t playerClass, uint32_t tree = 0)
 }
 
 inline bool Supports(uint8_t playerClass) { return !CombatSteps(playerClass).empty(); }
-inline bool IsRanged(uint8_t playerClass, uint32_t tree = 0, bool catForm = false)
+inline std::span<Step const> AoeSteps(uint8_t playerClass)
+{
+    switch (playerClass)
+    {
+        case ClassWarrior: return WarriorAoe;
+        case ClassMage: return MageAoe;
+        default: return {};
+    }
+}
+
+inline bool IsRanged(uint8_t playerClass, uint32_t tree = 0, bool catForm = false, bool bear = false)
 {
     switch (playerClass)
     {
         case ClassHunter:
         case ClassWarlock: return true;
         case ClassShaman: return tree != TreeShamanEnhancement;
-        case ClassDruid: return tree != TreeDruidFeral || !catForm;
+        case ClassDruid: return tree != TreeDruidFeral || !(catForm || bear);
         default: return false;
     }
 }
@@ -391,6 +453,10 @@ inline bool BleedFinisherReady(uint8_t comboPoints, float targetHealthPct, bool 
     return comboPoints >= 4 && targetHealthPct > 50.0f && !auraPresent;
 }
 inline bool SelfHotReady(float healthPct, bool auraPresent) { return healthPct < 60.0f && !auraPresent; }
+// Enemies this close to the target count for area spells.
+constexpr float AoeRadius = 8.0f;
+// Area spells pay off on three enemies and must not wake a crowd-controlled one.
+inline bool AoeWorthCasting(uint32_t enemies, bool controlledNearby) { return enemies >= 3 && !controlledNearby; }
 }
 
 #endif

@@ -14,6 +14,7 @@
 #include "../Ai/Base/PlayerbotPartyBuffStrategy.h"
 #include "../Ai/Base/PlayerbotReadyCheckSupplies.h"
 #include "../Ai/Base/PlayerbotRoles.h"
+#include "../Ai/Base/PlayerbotGroupHeal.h"
 #include "Chat.h"
 #include "WorldSession.h"
 #include "Creature.h"
@@ -1292,6 +1293,8 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             _serverOriginHealCheckTimer = 750;
             if (UpdateSupportReach())
                 return;
+            if (!solo && PlayerbotGroupHeal::Try(*_player, _ai.GetController()))
+                return;
             if (hybridHealer)
                 PlayerbotHybridHealer::HealParty(*_player, _ai.GetController());
             else if (_engine && PlayerbotModuleEnginePriestHealEnabled())
@@ -1427,13 +1430,35 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         }
     }
 
+    // Random bots in a dungeon with a human: step out of harmful areas, keep the moon controlled,
+    // the tank pulls and marks, everyone drinks between fights.
+    uint32 const now = getMSTime();
+    Player* dungeonHuman = solo ? nullptr : RandomPlayerbotDungeon::Human(*_player, _session.GetAccountId());
+    bool const dungeonTank = dungeonHuman && RandomPlayerbotDungeon::IsTank(*_player);
+    if (dungeonHuman && _player->IsAlive() && !_player->IsBeingTeleported())
+    {
+        if (RandomPlayerbotDungeon::AvoidHazards(*_player, *dungeonHuman, _dungeon, now))
+        {
+            _serverOriginMeleeStance = 0; // chase again once out
+            return;
+        }
+        if (!dungeonTank && RandomPlayerbotDungeon::CrowdControl(*_player, _dungeon, now))
+            return;
+        if (dungeonTank && !request && !_serverOriginAttacking.load())
+            if (Creature* pull = RandomPlayerbotDungeon::SelectPull(*_player, *dungeonHuman, _dungeon, now))
+                if (beginAttack(pull, false))
+                    RandomPlayerbotDungeon::Pulled(*_player, *pull, _dungeon, now);
+    }
+
     if (!request && !_serverOriginAttacking.load() && _serverOriginAutoAssistEnabled.load())
     {
         if (_serverOriginAssistCheckTimer > diff)
             _serverOriginAssistCheckTimer -= diff;
         else
         {
-            _serverOriginAssistCheckTimer = 500;
+            // In a dungeon each bot joins a fight after its own short reaction time.
+            _serverOriginAssistCheckTimer = dungeonHuman ?
+                RandomPlayerbotDungeonPolicy::ReactMs(_player->GetGUID().GetCounter(), now / 1000) : 500;
             uint32 ownerGuidLow = _serverOriginFollowTargetGuidLow.load();
             Player* owner = ownerGuidLow ? _player->GetMap()->GetPlayer(ObjectGuid::Create<HighGuid::Player>(ownerGuidLow)) : nullptr;
             Unit* selected = owner ? owner->GetSelectedUnit() : nullptr;
@@ -1500,6 +1525,11 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
     if (!_serverOriginAttacking.load())
         tickPriest();
 
+    if (dungeonHuman && !_serverOriginAttacking.load() && !_player->IsInCombat() &&
+        !PlayerbotTargetSelection::HasNearbyPartyCombat(*_player, *dungeonHuman) &&
+        RandomPlayerbotDungeon::TakeBreak(_ai, *_player, _dungeon, now))
+        return;
+
     if (!_serverOriginAttacking.load() && _serverOriginFollowTargetGuidLow.load() && !_player->IsInCombat())
     {
         if (_serverOriginBuffCheckTimer > diff)
@@ -1565,6 +1595,14 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             cease();
             tickPriest();
             return;
+        }
+
+        if (dungeonTank)
+        {
+            // A pull starts as an own attack; once the pack fights the group the tank protects it like any fight.
+            if (!_serverOriginAutoAssistedAttack && PlayerbotTargetSelection::IsEngagedWithAttachedParty(*_player, *owner, *target))
+                _serverOriginAutoAssistedAttack = true;
+            RandomPlayerbotDungeon::UpdateMarks(*_player, target, _dungeon, now);
         }
 
         if (_player->getClass() == CLASS_PRIEST)
@@ -1659,6 +1697,9 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
             return;
         }
 
+        if (PlayerbotClassRotation::ExecuteAoe(*_player, *target))
+            return;
+
         if (_player->getClass() == CLASS_MAGE)
         {
             if (_ai.NeedsSpellChaseRefresh() && PlayerbotCombatMovement::RefreshSpellChase(_ai))
@@ -1684,7 +1725,10 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         bool tanking = PlayerbotCombatMovement::UsesFrontPosition(
             target->GetVictim() == _player, PlayerbotRoles::IsTank(*_player));
         uint8 stance = tanking ? 2 : 1;
-        if (stance != _serverOriginMeleeStance && PlayerbotCombatMovement::CanMove(*_player))
+        // Melee does not follow its target back into a harmful area; the tank does.
+        bool hazardAtTarget = dungeonHuman && !tanking && stance != _serverOriginMeleeStance &&
+            RandomPlayerbotDungeon::HazardAt(*_player, target->GetPosition());
+        if (stance != _serverOriginMeleeStance && !hazardAtTarget && PlayerbotCombatMovement::CanMove(*_player))
         {
             _player->GetMotionMaster()->MoveChase(target, std::nullopt, ChaseAngle(PlayerbotGroup::MeleeChaseAngle(tanking)));
             _serverOriginMeleeStance = stance;

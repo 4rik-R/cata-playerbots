@@ -9,6 +9,7 @@
 #include "RandomPlayerbotCrossings.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotLfg.h"
+#include "RandomPlayerbotDungeon.h"
 #include "RandomPlayerbotLfgPolicy.h"
 #include "RandomPlayerbotProgression.h"
 #include "RandomPlayerbotQuests.h"
@@ -408,7 +409,8 @@ std::string RandomPlayerbotMgr::Describe()
             std::to_string(RandomPlayerbotProgression::GetSettings().MinLevel) + "-" +
             std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) +
         ", " + RandomPlayerbotQuests::Describe() + "; " + RandomPlayerbotCapital::Describe() + "; " +
-        RandomPlayerbotCrossings::Describe() + "; " + RandomPlayerbotLfg::Describe() + ".";
+        RandomPlayerbotCrossings::Describe() + "; " + RandomPlayerbotLfg::Describe() + 
+        "; " + RandomPlayerbotDungeon::Describe() + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)

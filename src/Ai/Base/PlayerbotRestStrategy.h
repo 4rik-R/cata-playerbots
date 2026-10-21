@@ -39,6 +39,8 @@ public:
 };
 void AddContexts(SharedNamedObjectContextList<Strategy>& strategies,
     SharedNamedObjectContextList<Action>& actions, SharedNamedObjectContextList<Trigger>& triggers);
+// Map-thread only: eats or drinks now, whatever the usual thresholds, when the bot may rest. For dungeon breaks.
+bool Begin(PlayerbotAI& ai, Kind kind);
 // Map-thread only. Cancels only the aura recorded by this rest action.
 bool Update(PlayerbotAI& ai, bool interrupt);
 }
