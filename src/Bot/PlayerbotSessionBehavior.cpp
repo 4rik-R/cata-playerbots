@@ -635,7 +635,29 @@ void PlayerbotSessionBehavior::UpdateWorld()
     PlayerbotRepair::Update(_session, _repairCommands);
     PlayerbotQuestAccept::Update(_session, _questAcceptCommands);
     PlayerbotQuestShare::Update(_session, _questShareAttempt);
-    if (!PlayerbotModuleLootRollEnabled()) _rollCommands.Cancel();
+    if (RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
+    {
+        // Random bots always roll greed, so the humans in their group get first pick and no roll waits on them.
+        _rollCommands.Cancel();
+        Player* bot = _session.GetPlayer();
+        Group* group = bot ? bot->GetGroup() : nullptr;
+        uint32 now = getMSTime();
+        PlayerbotLootRoll roll;
+        if (group && bot->IsInWorld() && !bot->IsBeingTeleported() && uint32(now - _rollPollTime) >= 500 &&
+            (_rollPollTime = now, group->GetPlayerbotPendingLootRoll(*bot, roll)))
+        {
+            uint8 choice = PlayerbotLootRoll::Admits(true, roll.Mask, ROLL_GREED) ? uint8(ROLL_GREED) : uint8(ROLL_PASS);
+            if (group->ValidatePlayerbotLootVote(*bot, roll, choice))
+            {
+                WorldPacket packet(CMSG_LOOT_ROLL, 13);
+                packet << ObjectGuid(roll.Roll) << uint32(roll.Slot) << choice;
+                _session.HandleLootRoll(packet);
+                TC_LOG_INFO("module.playerbots", "PB-ROLL: %s rolled %s on item %u", bot->GetName().c_str(),
+                    choice == ROLL_GREED ? "greed" : "pass", roll.Entry);
+            }
+        }
+    }
+    else if (!PlayerbotModuleLootRollEnabled()) _rollCommands.Cancel();
     else
     {
         Player* bot = _session.GetPlayer();
