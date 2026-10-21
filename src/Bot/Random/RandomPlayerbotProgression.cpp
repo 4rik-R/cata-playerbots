@@ -14,6 +14,7 @@
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
 #include "Item.h"
+#include "LFG.h"
 #include "ItemEnchantmentMgr.h"
 #include "Log.h"
 #include "ObjectMgr.h"
@@ -917,5 +918,15 @@ void RandomPlayerbotProgression::CompleteStartChain(Player& bot)
         if (bot.GetQuestStatus(id) != QUEST_STATUS_NONE)
             bot.RemoveActiveQuest(id, false);
         bot.SetRewardedQuest(id);
+    }
+}
+
+uint8_t RandomPlayerbotProgression::DungeonRole(Player const& bot)
+{
+    switch (RoleOf(bot))
+    {
+        case Role::Tank: return PLAYER_ROLE_TANK;
+        case Role::Healer: return PLAYER_ROLE_HEALER;
+        default: return PLAYER_ROLE_DAMAGE;
     }
 }

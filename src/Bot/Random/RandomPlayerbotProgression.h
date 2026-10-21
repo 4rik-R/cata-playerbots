@@ -60,6 +60,8 @@ bool EnsureHunterPet(Player& bot);
 void KeepHunterPet(Player& bot);
 // The ground mount the bot learned with riding (any thread), or 0.
 uint32_t MountSpell(Player const& bot);
+// The dungeon-finder role of the bot's stable spec, as a PLAYER_ROLE_* bit (any thread).
+uint8_t DungeonRole(Player const& bot);
 }
 
 #endif
