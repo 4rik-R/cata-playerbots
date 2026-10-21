@@ -174,6 +174,12 @@ bool Fill(std::vector<Player*> const& bots, HumanQueue const& queue, uint8_t rol
 // Bots waiting for a queue that is gone leave it; proposals and role checks are answered.
 void Answer(std::vector<Player*> const& bots, std::vector<HumanQueue> const& queues)
 {
+    // A group of bots alone is turned down: bots only go along with a human.
+    bool humanProposed = false;
+    for (auto const& [account, session] : sWorld->GetAllSessions())
+        if (Player* player = session ? session->GetPlayer() : nullptr)
+            if (!session->IsServerOrigin() && sLFGMgr->GetState(player->GetGUID()) == lfg::LFG_STATE_PROPOSAL)
+                humanProposed = true;
     for (Player* bot : bots)
     {
         if (!bot)
@@ -184,8 +190,9 @@ void Answer(std::vector<Player*> const& bots, std::vector<HumanQueue> const& que
         {
             if (uint32 proposal = sLFGMgr->GetPendingProposal(guid))
             {
-                sLFGMgr->UpdateProposal(proposal, guid, true);
-                TC_LOG_INFO("module.playerbots", "PB-LFG: %s accepted dungeon proposal %u", bot->GetName().c_str(), proposal);
+                sLFGMgr->UpdateProposal(proposal, guid, humanProposed);
+                TC_LOG_INFO("module.playerbots", "PB-LFG: %s %s dungeon proposal %u", bot->GetName().c_str(),
+                    humanProposed ? "accepted" : "declined (no human in it)", proposal);
             }
             continue;
         }
