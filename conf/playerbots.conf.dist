@@ -402,7 +402,11 @@ Playerbots.Random.Level.Max = 85
 #                     continent on a journey: they ride to a flight master and
 #                     fly when that saves riding, else ride all the way. A
 #                     journey stuck four times or longer than 20 minutes ends
-#                     by teleport, as does a move to another continent.
+#                     by teleport. A goal on another continent or landmass is
+#                     reached on a voyage: bots wait at the dock for a ship or
+#                     zeppelin and ride it, or step through the portals of the
+#                     capitals, Shattrath and Dalaran or the Dark Portal, then
+#                     journey on. A voyage that stalls ends by teleport.
 #                     Every five levels, or when gear is worn or the bags are
 #                     full of junk, a bot hearths to Stormwind or Orgrimmar,
 #                     repairs and sells at a vendor, stops at its class
@@ -412,7 +416,9 @@ Playerbots.Random.Level.Max = 85
 #                     The status line counts bots questing, travelling,
 #                     grinding and on journeys, journeys, flights, failed
 #                     journeys and teleports, bots in capitals, capital
-#                     visits and failed hearthstones.
+#                     visits and failed hearthstones, bots sailing, voyages,
+#                     ship rides, portals, failed voyages and the crossings
+#                     found at startup.
 #                     Requires Playerbots.Random.Grind.Enabled and
 #                     Playerbots.Random.Level.Enabled.
 #        Default:     0 - (Disabled)

@@ -6,6 +6,7 @@
  */
 #include "RandomPlayerbotMgr.h"
 #include "RandomPlayerbotCapital.h"
+#include "RandomPlayerbotCrossings.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotProgression.h"
 #include "RandomPlayerbotQuests.h"
@@ -317,6 +318,7 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
     {
         RandomPlayerbotQuests::BuildIndex();
         RandomPlayerbotCapital::BuildIndex();
+        RandomPlayerbotCrossings::BuildIndex();
     }
 
     if (Slots.size() > Settings.Count)
@@ -389,7 +391,8 @@ std::string RandomPlayerbotMgr::Describe()
         ", levels " + (RandomPlayerbotProgression::GetSettings().Enabled ?
             std::to_string(RandomPlayerbotProgression::GetSettings().MinLevel) + "-" +
             std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) +
-        ", " + RandomPlayerbotQuests::Describe() + "; " + RandomPlayerbotCapital::Describe() + ".";
+        ", " + RandomPlayerbotQuests::Describe() + "; " + RandomPlayerbotCapital::Describe() + "; " +
+        RandomPlayerbotCrossings::Describe() + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)
