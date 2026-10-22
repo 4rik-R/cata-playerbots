@@ -22,6 +22,7 @@
 #include "../Ai/Base/PlayerbotCombatMovement.h"
 #include "Cmd/PlayerbotStrategyControl.h"
 #include "Random/RandomPlayerbotQuests.h"
+#include "Random/RandomPlayerbotDungeon.h"
 #include <atomic>
 #include <memory>
 
@@ -158,6 +159,7 @@ private:
     uint32 _progressRelocateMs = 0;
     bool _progressFarTeleport = false;
     // Map-owned questing state (WantsRelocation is consumed by the world thread).
+    RandomPlayerbotDungeon::State _dungeon; // map-owned dungeon play of random bots
     bool _hunterPetChecked = false;
     uint32 _hunterPetKeptMs = 0;
     RandomPlayerbotQuests::BotState _questState;

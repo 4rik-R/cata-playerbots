@@ -161,3 +161,32 @@ TEST_CASE("Class rotation keeps spell ids unique per table", "[playerbots][rotat
             REQUIRE(ids.insert(step.SpellId).second);
     }
 }
+
+TEST_CASE("Tanking feral druids fight as bears in melee", "[playerbots][rotation]")
+{
+    auto bear = CombatSteps(ClassDruid, TreeDruidFeral, true, true);
+    REQUIRE(bear.data() == std::begin(DruidBear));
+    REQUIRE(bear[0].SpellId == DruidBearForm);
+    REQUIRE_FALSE(IsRanged(ClassDruid, TreeDruidFeral, false, true));
+    // A bear without the feral tree is still a caster.
+    REQUIRE(CombatSteps(ClassDruid, TreeDruidBalance, true, true).data() == std::begin(DruidCaster));
+    std::set<uint32_t> ids;
+    for (Step const& step : bear)
+        REQUIRE(ids.insert(step.SpellId).second);
+    // About half of the feral druids tank.
+    uint32_t tanks = 0;
+    for (uint32_t guid = 1; guid <= 1000; ++guid)
+        tanks += FeralTank(guid) ? 1 : 0;
+    REQUIRE(tanks > 400);
+    REQUIRE(tanks < 600);
+}
+
+TEST_CASE("Area spells need three enemies and no crowd control", "[playerbots][rotation]")
+{
+    REQUIRE(AoeWorthCasting(3, false));
+    REQUIRE_FALSE(AoeWorthCasting(2, false));
+    REQUIRE_FALSE(AoeWorthCasting(5, true));
+    REQUIRE(AoeSteps(ClassWarrior).size() == 3);
+    REQUIRE(AoeSteps(ClassMage)[0].SpellId == 2120);
+    REQUIRE(AoeSteps(ClassRogue).empty());
+}

@@ -10,6 +10,7 @@
 #include "../Ai/Base/PlayerbotEquipmentInspection.h"
 #include "../Ai/Base/PlayerbotQuestAccept.h"
 #include "../Bot/Cmd/PlayerbotQuestChat.h"
+#include "../Bot/Random/RandomPlayerbotDungeon.h"
 #include "PlayerbotSecurity.h"
 #include "PlayerbotSessionHooks.h"
 #include "PlayerbotConfig.h"
@@ -201,9 +202,30 @@ public:
         }
     }
 
+    // "/s bots warten" and "/s bots weiter" hold and release the bot tank of a dungeon-finder group.
+    void OnChat(Player* sender, uint32 type, uint32 lang, std::string& message) override
+    {
+        if ((type != CHAT_MSG_SAY && type != CHAT_MSG_YELL) || lang == LANG_ADDON || !sender || !sender->GetSession() ||
+            sender->GetSession()->IsServerOrigin())
+            return;
+        auto command = RandomPlayerbotDungeonPolicy::ParseCommand(message);
+        if (Group* group = sender->GetGroup(); group && command != RandomPlayerbotDungeonPolicy::Command::None)
+            RandomPlayerbotDungeon::Command(*sender, *group, command);
+    }
+
     void OnChat(Player* sender, uint32 type, uint32 lang, std::string& message, Group* group) override
     {
         bool partyChat = type == CHAT_MSG_PARTY || type == CHAT_MSG_PARTY_LEADER;
+        if (partyChat && lang != LANG_ADDON &&
+            sender && group && sender->GetSession() && !sender->GetSession()->IsServerOrigin())
+        {
+            auto command = RandomPlayerbotDungeonPolicy::ParseCommand(message);
+            if (command != RandomPlayerbotDungeonPolicy::Command::None)
+            {
+                RandomPlayerbotDungeon::Command(*sender, *group, command);
+                return;
+            }
+        }
         bool raidChat = type == CHAT_MSG_RAID || type == CHAT_MSG_RAID_LEADER;
         if ((!partyChat && !raidChat) || lang == LANG_ADDON || !sender || !group ||
             group->isBGGroup() || !group->IsMember(sender->GetGUID()) || !sender->IsInWorld() ||

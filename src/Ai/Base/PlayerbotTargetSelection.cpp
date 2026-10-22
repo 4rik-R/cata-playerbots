@@ -152,6 +152,9 @@ static ObjectGuid SelectTarget(PlayerbotAI& ai, Engine const& engine, bool tank)
                 ++nearCount;
     bool casterRanking = estimated && nearCount > 3 && PlayerbotRoles::IsRanged(*bot);
     ObjectGuid skull = group ? group->GetTargetIcon(7) : ObjectGuid::Empty;
+    // Cross comes next once the skull is dead or out of reach.
+    if (group && !eligible(skull))
+        skull = group->GetTargetIcon(6);
     Creature* current = ai.GetCurrentTarget();
     bool retainTankTarget = tank && RetainMainTankTarget(PlayerbotRoles::IsExplicitMainTank(*bot),
         PlayerbotRoles::GroupTankCount(*bot));

@@ -5,8 +5,12 @@
  */
 #include "PlayerbotClassRotation.h"
 #include "../../Base/PlayerbotCombatDecision.h"
+#include "../../Base/PlayerbotTargetSelection.h"
+#include "CellImpl.h"
 #include "CharmInfo.h"
 #include "Creature.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "Log.h"
 #include "Map.h"
 #include "Pet.h"
@@ -18,6 +22,7 @@
 #include "SpellHistory.h"
 #include "SpellMgr.h"
 #include "TemporarySummon.h"
+#include <list>
 
 namespace
 {
@@ -31,9 +36,37 @@ float PowerPct(Player const& bot, PowerType power)
 
 uint32 Tree(Player const& bot) { return bot.GetPrimaryTalentTree(bot.GetActiveSpec()); }
 
+bool Bear(Player const& bot)
+{
+    return bot.getClass() == ClassDruid && Tree(bot) == TreeDruidFeral && bot.HasSpell(DruidBearForm) &&
+        FeralTank(bot.GetGUID().GetCounter());
+}
+
 std::span<Step const> Combat(Player const& bot)
 {
-    return CombatSteps(bot.getClass(), Tree(bot), bot.HasSpell(DruidCatForm));
+    return CombatSteps(bot.getClass(), Tree(bot), bot.HasSpell(DruidCatForm), Bear(bot));
+}
+
+// Fighting enemies around the target; a crowd-controlled one among them forbids area spells.
+bool PackAround(Player const& bot, Creature const& target)
+{
+    std::list<Unit*> units;
+    Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(&target, &bot, AoeRadius);
+    Trinity::UnitListSearcher<Trinity::AnyUnfriendlyUnitInObjectRangeCheck> searcher(&target, units, check);
+    Cell::VisitAllObjects(&target, searcher, AoeRadius);
+    uint32 enemies = 0;
+    bool controlled = false;
+    for (Unit* unit : units)
+    {
+        Creature* creature = unit ? unit->ToCreature() : nullptr;
+        if (!creature || creature->IsControlledByPlayer() || creature->IsTotem() || creature->IsCritter())
+            continue;
+        if (PlayerbotTargetSelection::IsProtectedTarget(*creature))
+            controlled = true;
+        else if (creature->IsInCombat() && bot.IsValidAttackTarget(creature))
+            ++enemies;
+    }
+    return AoeWorthCasting(enemies, controlled);
 }
 
 // Any member of the step's exclusive group already worn counts as present.
@@ -106,8 +139,26 @@ bool Ready(Player& bot, Creature* target, Step const& step, bool inCombat)
         case When::ComboFinisherDot:
             return target && bot.GetComboTarget() == target->GetGUID() &&
                 BleedFinisherReady(bot.GetComboPoints(), target->GetHealthPct(), target->HasAura(aura, bot.GetGUID()));
+        case When::Enemies3: return target && PackAround(bot, *target);
     }
     return false;
+}
+
+// Spells aimed at the ground (Flamestrike) land under the target.
+bool CastAtGround(Player& bot, Unit& target, Step const& step)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(step.SpellId);
+    if (!info || !(info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION) ||
+        bot.GetSpellHistory()->HasGlobalCooldown(info) || bot.GetSpellHistory()->HasCooldown(info) ||
+        !bot.IsWithinDistInMap(&target, info->GetMaxRange(false)) || !bot.IsWithinLOSInMap(&target))
+        return false;
+    Spell* spell = new Spell(&bot, info, TRIGGERED_NONE);
+    SpellCastTargets targets;
+    targets.SetDst(target);
+    if (spell->prepare(targets) != SPELL_CAST_OK)
+        return false;
+    TC_LOG_DEBUG("module.playerbots", "PB-02: %s began %s at %s", bot.GetName().c_str(), step.Name, target.GetName().c_str());
+    return true;
 }
 
 bool Run(Player& bot, Creature* target, std::span<Step const> steps, bool inCombat)
@@ -118,7 +169,8 @@ bool Run(Player& bot, Creature* target, std::span<Step const> steps, bool inComb
             continue;
         Unit* castTarget = step.On == Target::Self ? static_cast<Unit*>(&bot) :
             step.On == Target::Pet ? static_cast<Unit*>(LivePet(bot)) : static_cast<Unit*>(target);
-        if (castTarget && PlayerbotDecision::TryCast(bot, *castTarget, step.SpellId, step.Name))
+        if (castTarget && (CastAtGround(bot, *castTarget, step) ||
+            PlayerbotDecision::TryCast(bot, *castTarget, step.SpellId, step.Name)))
             return true;
     }
     return false;
@@ -177,10 +229,11 @@ bool ApplyImbue(Player& bot, uint32 spellId)
     return true;
 }
 
-// Druids leave cat and moonkin form after combat so they can eat, drink and mount.
+// Druids leave cat and moonkin form after combat so they can eat, drink and mount; a tank stays a bear.
 bool InCombatForm(Player const& bot)
 {
-    return bot.getClass() == ClassDruid && bot.HasAuraType(SPELL_AURA_MOD_SHAPESHIFT);
+    return bot.getClass() == ClassDruid && bot.HasAuraType(SPELL_AURA_MOD_SHAPESHIFT) &&
+        !(Bear(bot) && bot.GetShapeshiftForm() == FORM_BEAR);
 }
 
 bool NeedsPet(Player const& bot)
@@ -223,7 +276,15 @@ bool PlayerbotClassRotation::Execute(Player& bot, Creature& target)
 
 bool PlayerbotClassRotation::FightsAtRange(Player const& bot)
 {
-    return IsRanged(bot.getClass(), Tree(bot), bot.HasSpell(DruidCatForm));
+    return IsRanged(bot.getClass(), Tree(bot), bot.HasSpell(DruidCatForm), Bear(bot));
+}
+
+bool PlayerbotClassRotation::ExecuteAoe(Player& bot, Creature& target)
+{
+    std::span<Step const> steps = AoeSteps(bot.getClass());
+    if (steps.empty() || !bot.IsAlive() || bot.IsNonMeleeSpellCast(false))
+        return false;
+    return Run(bot, &target, steps, true);
 }
 
 bool PlayerbotClassRotation::NeedsUpkeep(Player& bot)
@@ -277,20 +338,24 @@ void PlayerbotClassRotation::ValidateSpells()
             ++missing;
         }
     };
-    struct Spec { uint8 Class; uint32 Tree; bool CatForm; };
+    struct Spec { uint8 Class; uint32 Tree; bool CatForm; bool Bear = false; };
     for (Spec spec : std::initializer_list<Spec>{ { ClassRogue, 0, false }, { ClassHunter, 0, false },
         { ClassWarlock, 0, false }, { ClassPaladin, TreePaladinHoly, false },
         { ClassPaladin, TreePaladinProtection, false }, { ClassPaladin, TreePaladinRetribution, false },
         { ClassShaman, TreeShamanElemental, false }, { ClassShaman, TreeShamanEnhancement, false },
         { ClassShaman, TreeShamanRestoration, false }, { ClassDruid, TreeDruidBalance, false },
-        { ClassDruid, TreeDruidFeral, true }, { ClassDeathKnight, TreeDeathKnightBlood, false },
+        { ClassDruid, TreeDruidFeral, true }, { ClassDruid, TreeDruidFeral, true, true },
+        { ClassDeathKnight, TreeDeathKnightBlood, false },
         { ClassDeathKnight, TreeDeathKnightFrost, false }, { ClassDeathKnight, TreeDeathKnightUnholy, false } })
     {
-        for (Step const& step : CombatSteps(spec.Class, spec.Tree, spec.CatForm))
+        for (Step const& step : CombatSteps(spec.Class, spec.Tree, spec.CatForm, spec.Bear))
             check(step.SpellId, step.Name);
         for (Step const& step : UpkeepSteps(spec.Class, spec.Tree))
             check(step.SpellId, step.Name);
     }
+    for (uint8 playerClass : { ClassWarrior, ClassMage })
+        for (Step const& step : AoeSteps(playerClass))
+            check(step.SpellId, step.Name);
     for (uint32 spellId : { HunterCallPet, HunterRevivePet, WarlockVoidwalker, WarlockImp, ShamanWindfury,
         ShamanFlametongue })
         check(spellId, "pet summon or imbue");

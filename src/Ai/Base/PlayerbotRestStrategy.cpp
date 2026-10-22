@@ -59,6 +59,58 @@ SpellInfo const* RestSpell(Item const& item, PlayerbotRest::Kind kind)
         }
     return nullptr;
 }
+// First usable food or drink in the backpack, then the bags.
+ObjectGuid FindRestItem(Player& bot, PlayerbotRest::Kind kind)
+{
+    auto eligible = [&](Item* item)
+    {
+        SpellInfo const* spell = item ? RestSpell(*item, kind) : nullptr;
+        return spell && bot.CanUseItem(item) == EQUIP_ERR_OK && !bot.GetSpellHistory()->HasCooldown(spell);
+    };
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        if (Item* item = bot.GetItemByPos(INVENTORY_SLOT_BAG_0, slot); eligible(item))
+            return item->GetGUID();
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START; bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+        if (Bag* bag = bot.GetBagByPos(bagSlot))
+            for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
+                if (Item* item = bag->GetItemByPos(slot); eligible(item))
+                    return item->GetGUID();
+    return ObjectGuid::Empty;
+}
+
+// Native item use of the food or drink; true once its aura is on the bot.
+bool StartRest(PlayerbotAI& ai, ObjectGuid itemGuid, PlayerbotRest::Kind kind, std::string const& name)
+{
+    Player* bot = ai.GetBot();
+    Item* item = bot ? bot->GetItemByGuid(itemGuid) : nullptr;
+    SpellInfo const* spell = item ? RestSpell(*item, kind) : nullptr;
+    if (!item || !spell || !Player::IsInventoryPos(item->GetBagSlot(), item->GetSlot()) ||
+        bot->GetUseableItemByPos(item->GetBagSlot(), item->GetSlot()) != item ||
+        bot->CanUseItem(item) != EQUIP_ERR_OK || bot->GetSpellHistory()->HasCooldown(spell) ||
+        !bot->CanRequestSpellCast(spell) || bot->HasUnitState(UNIT_STATE_CASTING) ||
+        bot->GetSpellHistory()->GetRemainingGlobalCooldown(spell) > 0)
+        return false;
+    // Typed native request: no packet layouts, direct restoration or manual consumption.
+    WorldPackets::Spells::SpellCastRequest request;
+    request.SpellID = spell->Id;
+    request.Target.Flags = TARGET_FLAG_UNIT;
+    request.Target.Unit = bot->GetGUID();
+    auto pending = std::make_unique<PendingSpellCastRequest>(std::move(request),
+        SpellCastRequestItemData(item->GetBagSlot(), item->GetSlot(), item->GetGUID()));
+    bot->GetMotionMaster()->Clear(MOTION_SLOT_ACTIVE);
+    bot->GetMotionMaster()->Clear(MOTION_SLOT_IDLE);
+    bot->GetMotionMaster()->MoveIdle();
+    bot->StopMoving();
+    ai.BeginRest(spell->Id, kind == PlayerbotRest::Kind::Drink);
+    bot->RequestSpellCast(std::move(pending), spell);
+    // Submission is not native cast success. Update clears failed/absent auras.
+    bool started = bot->HasAura(spell->Id);
+    if (started)
+        TC_LOG_INFO("module.playerbots", "PB-REST: %s began %s using spell %u", bot->GetName().c_str(),
+            name.c_str(), spell->Id);
+    return started;
+}
+
 class InventoryRestItemValue final : public CalculatedValue<ObjectGuid>
 {
 public:
@@ -70,20 +122,7 @@ private:
         Player* bot = botAI ? botAI->GetBot() : nullptr;
         if (!bot || !Ready(botAI) || !Needed(*bot, kind))
             return ObjectGuid::Empty;
-        auto eligible = [&](Item* item)
-        {
-            SpellInfo const* spell = item ? RestSpell(*item, kind) : nullptr;
-            return spell && bot->CanUseItem(item) == EQUIP_ERR_OK && !bot->GetSpellHistory()->HasCooldown(spell);
-        };
-        for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
-            if (Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot); eligible(item))
-                return item->GetGUID();
-        for (uint8 bagSlot = INVENTORY_SLOT_BAG_START; bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
-            if (Bag* bag = bot->GetBagByPos(bagSlot))
-                for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
-                    if (Item* item = bag->GetItemByPos(slot); eligible(item))
-                        return item->GetGUID();
-        return ObjectGuid::Empty;
+        return FindRestItem(*bot, kind);
     }
     PlayerbotRest::Kind kind;
 };
@@ -114,38 +153,9 @@ public:
     {
         if (!isUseful())
             return false;
-        Player* bot = botAI->GetBot();
-        Item* item = bot->GetItemByGuid(candidate.Get());
-        SpellInfo const* spell = item ? RestSpell(*item, kind) : nullptr;
-        if (!item || !spell || !Player::IsInventoryPos(item->GetBagSlot(), item->GetSlot()) ||
-            bot->GetUseableItemByPos(item->GetBagSlot(), item->GetSlot()) != item ||
-            bot->CanUseItem(item) != EQUIP_ERR_OK || bot->GetSpellHistory()->HasCooldown(spell) ||
-            !bot->CanRequestSpellCast(spell) || bot->HasUnitState(UNIT_STATE_CASTING) ||
-            bot->GetSpellHistory()->GetRemainingGlobalCooldown(spell) > 0)
-        {
-            candidate.Reset();
-            return false;
-        }
-        // Typed native request: no packet layouts, direct restoration or manual consumption.
-        WorldPackets::Spells::SpellCastRequest request;
-        request.SpellID = spell->Id;
-        request.Target.Flags = TARGET_FLAG_UNIT;
-        request.Target.Unit = bot->GetGUID();
-        auto pending = std::make_unique<PendingSpellCastRequest>(std::move(request),
-            SpellCastRequestItemData(item->GetBagSlot(), item->GetSlot(), item->GetGUID()));
-        bot->GetMotionMaster()->Clear(MOTION_SLOT_ACTIVE);
-        bot->GetMotionMaster()->Clear(MOTION_SLOT_IDLE);
-        bot->GetMotionMaster()->MoveIdle();
-        bot->StopMoving();
-        botAI->BeginRest(spell->Id, kind == PlayerbotRest::Kind::Drink);
-        bot->RequestSpellCast(std::move(pending), spell);
+        ObjectGuid item = candidate.Get();
         candidate.Reset();
-        // Submission is not native cast success. Update clears failed/absent auras.
-        bool started = bot->HasAura(spell->Id);
-        if (started)
-            TC_LOG_INFO("module.playerbots", "PB-REST: %s began %s using spell %u", bot->GetName().c_str(),
-                name.c_str(), spell->Id);
-        return started;
+        return StartRest(*botAI, item, kind, name);
     }
 private:
     PlayerbotRest::Kind kind;
@@ -192,4 +202,13 @@ bool PlayerbotRest::Update(PlayerbotAI& ai, bool interrupt)
         return false;
     }
     return true;
+}
+
+bool PlayerbotRest::Begin(PlayerbotAI& ai, Kind kind)
+{
+    Player* bot = ai.GetBot();
+    if (!bot || ai.GetRestSpellId() || !Ready(&ai))
+        return false;
+    ObjectGuid item = FindRestItem(*bot, kind);
+    return !item.IsEmpty() && StartRest(ai, item, kind, kind == Kind::Drink ? "drink" : "food");
 }

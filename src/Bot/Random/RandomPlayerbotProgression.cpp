@@ -923,6 +923,10 @@ void RandomPlayerbotProgression::CompleteStartChain(Player& bot)
 
 uint8_t RandomPlayerbotProgression::DungeonRole(Player const& bot)
 {
+    // Half of the feral druids tank as bears; their gear stays the same agility leather.
+    if (bot.getClass() == CLASS_DRUID && TalentTab(bot) == 1 && bot.HasSpell(PlayerbotClassRotation::DruidBearForm) &&
+        PlayerbotClassRotation::FeralTank(bot.GetGUID().GetCounter()))
+        return lfg::PLAYER_ROLE_TANK;
     switch (RoleOf(bot))
     {
         case Role::Tank: return lfg::PLAYER_ROLE_TANK;
