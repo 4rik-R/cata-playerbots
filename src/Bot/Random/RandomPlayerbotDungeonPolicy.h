@@ -126,6 +126,41 @@ inline bool BetterPull(PullCandidate const& next, PullCandidate const& old)
     return next.DistanceToHuman < old.DistanceToHuman;
 }
 
+// With nothing to pull near the human, the tank walks on to the next pack like a player tank:
+// packs this far from the tank count, the walk follows the path, and the tank stops to wait
+// once the human falls this far behind, going on when they caught up again.
+constexpr float LeadRange = 70.0f;
+constexpr float LeadPathFactor = 1.6f; // a path much longer than the straight line leads around a wall
+constexpr float LeadWaitBeyond = 25.0f;
+constexpr float LeadGoWithin = 15.0f;
+// Further away than this the human went elsewhere: the tank follows instead of leading.
+constexpr float LeadHumanLost = 45.0f;
+constexpr uint32_t LeadMoveEveryMs = 2000;
+
+enum class LeadStep { Follow, Walk, Wait, Pull };
+struct LeadView
+{
+    float HumanToTank;
+    float TankToPack;     // straight line
+    float PathToPack;     // along the walkable path; 0 when there is none
+    float HeightToPack;   // absolute, tank to pack
+    bool PackInSight;
+    bool Boss;
+    bool Waiting;         // the tank waited for the human last time
+};
+
+inline LeadStep Lead(LeadView const& view)
+{
+    if (view.HumanToTank > LeadHumanLost || view.PathToPack <= 0.0f || view.HeightToPack > FloorHeight ||
+        view.TankToPack > LeadRange || view.PathToPack > view.TankToPack * LeadPathFactor + 10.0f)
+        return LeadStep::Follow;
+    if (view.PackInSight && PullAllowed({ view.TankToPack, view.HeightToPack, view.Boss }, view.HumanToTank))
+        return LeadStep::Pull;
+    if (view.HumanToTank > (view.Waiting ? LeadGoWithin : LeadWaitBeyond))
+        return LeadStep::Wait;
+    return LeadStep::Walk;
+}
+
 struct Enemy
 {
     uint64_t Guid;

@@ -8,6 +8,7 @@
 #include "RandomPlayerbotProgression.h"
 #include "../PlayerbotAI.h"
 #include "../../Ai/Base/PlayerbotCombatDecision.h"
+#include "../../Ai/Base/PlayerbotCombatMovement.h"
 #include "../../Ai/Base/PlayerbotRestStrategy.h"
 #include "../../Ai/Base/PlayerbotRoles.h"
 #include "../../Ai/Base/PlayerbotTargetSelection.h"
@@ -22,11 +23,13 @@
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "MotionMaster.h"
+#include "PathGenerator.h"
 #include "Player.h"
 #include "SpellAuraEffects.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "WorldSession.h"
+#include <algorithm>
 #include <atomic>
 #include <list>
 #include <map>
@@ -39,7 +42,20 @@ using namespace RandomPlayerbotDungeonPolicy;
 
 namespace
 {
-std::atomic<uint32_t> PullCount { 0 }, MarkCount { 0 }, ControlCount { 0 }, AvoidCount { 0 }, BreakCount { 0 };
+std::atomic<uint32_t> PullCount { 0 }, MarkCount { 0 }, ControlCount { 0 }, AvoidCount { 0 }, BreakCount { 0 },
+    LeadCount { 0 };
+
+// What the last dungeon tank did and why, for the status line.
+std::mutex NoteLock;
+std::string TankNote;
+
+void Note(Player const& tank, std::string const& what)
+{
+    std::string note = tank.GetName() + " " + what;
+    std::lock_guard<std::mutex> guard(NoteLock);
+    if (TankNote != note)
+        TankNote = std::move(note);
+}
 
 std::mutex PausedLock;
 std::set<ObjectGuid> PausedGroups;
@@ -205,29 +221,42 @@ bool RandomPlayerbotDungeon::IsTank(Player const& bot)
 
 Creature* RandomPlayerbotDungeon::SelectPull(Player& tank, Player& human, State& state, uint32_t now)
 {
-    Group* group = tank.GetGroup();
-    if (!group || Paused(*group) || !tank.IsAlive() || tank.IsInCombat() || !human.IsAlive() || human.IsInCombat() ||
-        tank.IsNonMeleeSpellCast(false) || PlayerbotTargetSelection::HasNearbyPartyCombat(tank, human))
+    auto hold = [&](std::string const& why) -> Creature*
     {
         state.ReadySinceMs = 0;
+        StopLeading(tank, state);
+        Note(tank, why);
         return nullptr;
-    }
+    };
+    Group* group = tank.GetGroup();
+    if (!group)
+        return hold("no group");
+    if (Paused(*group))
+        return hold("waits (bots warten)");
+    if (!tank.IsAlive() || !human.IsAlive())
+        return hold("waits (someone is dead)");
+    if (tank.IsInCombat() || human.IsInCombat() || PlayerbotTargetSelection::HasNearbyPartyCombat(tank, human))
+        return hold("fights");
+    if (tank.IsNonMeleeSpellCast(false))
+        return nullptr;
     float humanToTank = tank.GetDistance(&human);
-    bool ready = humanToTank <= HumanNearTank;
-    for (GroupReference* ref = group->GetFirstMember(); ref && ready; ref = ref->next())
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->GetSource();
-        if (!member || !member->IsInWorld() || member->GetMap() != tank.GetMap())
+        if (!member || !member->IsInWorld() || member->GetMap() != tank.GetMap() || member == &tank)
             continue;
-        // A member still on the way, dead or below the line holds the pull.
-        ready = member->IsAlive() && member->IsWithinDistInMap(&human, GroupRange) &&
-            RandomPlayerbotDungeonPolicy::Ready(member->GetHealthPct(), ManaPct(*member), UsesMana(*member));
+        // A member still on the way, dead or below the line holds the pull, like a tank checking the party frames.
+        if (!member->IsAlive())
+            return hold("waits for " + member->GetName() + " (dead)");
+        if (member != &human && !member->IsWithinDistInMap(&human, GroupRange))
+            return hold("waits for " + member->GetName() + " (far away)");
+        if (member->GetHealthPct() < ReadyPct)
+            return hold("waits for " + member->GetName() + " (health)");
+        if (!RandomPlayerbotDungeonPolicy::Ready(100.0f, ManaPct(*member), UsesMana(*member)))
+            return hold("waits for " + member->GetName() + " (mana)");
     }
-    if (!ready)
-    {
-        state.ReadySinceMs = 0;
-        return nullptr;
-    }
+    if (!RandomPlayerbotDungeonPolicy::Ready(tank.GetHealthPct(), ManaPct(tank), UsesMana(tank)))
+        return hold("waits (own health or mana)");
     if (!state.ReadySinceMs)
     {
         state.ReadySinceMs = now;
@@ -236,14 +265,20 @@ Creature* RandomPlayerbotDungeon::SelectPull(Player& tank, Player& human, State&
     if (int32(now - state.PullAfterMs) < 0)
         return nullptr;
 
+    auto pullable = [&tank](Creature* creature)
+    {
+        CreatureTemplate const* info = creature->GetCreatureTemplate();
+        return info && !info->npcflag && !creature->IsInEvadeMode() && creature->IsHostileTo(&tank) &&
+            !PlayerbotTargetSelection::IsProtectedTarget(*creature) && tank.IsValidAttackTarget(creature) &&
+            tank.CanSeeOrDetect(creature);
+    };
+
+    // An enemy right in front of the human first: the human sets the direction.
     Creature* best = nullptr;
     PullCandidate bestCandidate {};
     for (Creature* creature : HostilesAround(human, tank, PullRange))
     {
-        CreatureTemplate const* info = creature->GetCreatureTemplate();
-        if (!info || info->npcflag || creature->IsInEvadeMode() || !creature->IsHostileTo(&tank) ||
-            PlayerbotTargetSelection::IsProtectedTarget(*creature) || !tank.IsValidAttackTarget(creature) ||
-            !tank.CanSeeOrDetect(creature) || !tank.IsWithinLOSInMap(creature) || !human.IsWithinLOSInMap(creature))
+        if (!pullable(creature) || !tank.IsWithinLOSInMap(creature) || !human.IsWithinLOSInMap(creature))
             continue;
         PullCandidate candidate { human.GetDistance(creature),
             std::abs(creature->GetPositionZ() - human.GetPositionZ()), Boss(*creature) };
@@ -253,7 +288,107 @@ Creature* RandomPlayerbotDungeon::SelectPull(Player& tank, Player& human, State&
             bestCandidate = candidate;
         }
     }
-    return best;
+    if (best)
+    {
+        StopLeading(tank, state);
+        return best;
+    }
+
+    // Otherwise the tank walks on to the nearest pack it can reach, the one it already heads for first.
+    Creature* pack = state.LeadTarget.IsEmpty() ? nullptr : ObjectAccessor::GetCreature(tank, state.LeadTarget);
+    if (pack && (!pack->IsAlive() || !pullable(pack)))
+        pack = nullptr;
+    LeadView view {};
+    auto measure = [&](Creature* creature) -> bool
+    {
+        float straight = tank.GetDistance(creature);
+        float height = std::abs(creature->GetPositionZ() - tank.GetPositionZ());
+        if (straight > LeadRange || height > FloorHeight)
+            return false;
+        PathGenerator path(&tank);
+        path.CalculatePath(creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ());
+        float length = 0.0f;
+        if (path.GetPathType() & (PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH))
+        {
+            Movement::PointsArray const& points = path.GetPath();
+            for (size_t i = 1; i < points.size(); ++i)
+                length += (points[i] - points[i - 1]).length();
+            length = std::max(length, 0.1f);
+        }
+        view = { humanToTank, straight, length, height, tank.IsWithinLOSInMap(creature), Boss(*creature), state.Waiting };
+        return length > 0.0f && length <= straight * LeadPathFactor + 10.0f;
+    };
+    if (pack && !measure(pack))
+        pack = nullptr;
+    if (!pack)
+    {
+        std::vector<Creature*> around = HostilesAround(tank, tank, LeadRange);
+        std::sort(around.begin(), around.end(),
+            [&tank](Creature* a, Creature* b) { return tank.GetExactDistSq(a) < tank.GetExactDistSq(b); });
+        uint32_t tried = 0;
+        for (Creature* creature : around)
+        {
+            if (!pullable(creature))
+                continue;
+            if (++tried > 6) // paths are not free; the nearest few decide
+                break;
+            if (measure(creature))
+            {
+                pack = creature;
+                break;
+            }
+        }
+    }
+    if (!pack)
+        return hold("follows (no pack in reach)");
+
+    switch (RandomPlayerbotDungeonPolicy::Lead(view))
+    {
+        case LeadStep::Follow:
+            return hold("follows (human elsewhere)");
+        case LeadStep::Pull:
+            StopLeading(tank, state);
+            return pack;
+        case LeadStep::Wait:
+            if (!state.Waiting || !state.Leading)
+            {
+                tank.GetMotionMaster()->Clear(MOTION_SLOT_ACTIVE);
+                tank.StopMoving();
+                tank.SetFacingToObject(&human);
+            }
+            state.Leading = true;
+            state.Waiting = true;
+            state.LeadTarget = pack->GetGUID();
+            Note(tank, "waits for " + human.GetName() + " before " + pack->GetName());
+            return nullptr;
+        case LeadStep::Walk:
+            break;
+    }
+    if (!state.Leading || state.Waiting || state.LeadTarget != pack->GetGUID() || int32(now - state.NextLeadMoveMs) >= 0)
+    {
+        if (PlayerbotCombatMovement::CanMove(tank))
+            tank.GetMotionMaster()->MovePoint(0, pack->GetPosition(), true);
+        state.NextLeadMoveMs = now + LeadMoveEveryMs;
+    }
+    if (!state.Leading)
+        ++LeadCount;
+    state.Leading = true;
+    state.Waiting = false;
+    state.LeadTarget = pack->GetGUID();
+    Note(tank, "leads to " + pack->GetName());
+    return nullptr;
+}
+
+void RandomPlayerbotDungeon::StopLeading(Player& tank, State& state)
+{
+    if (state.Leading)
+    {
+        tank.GetMotionMaster()->Clear(MOTION_SLOT_ACTIVE);
+        tank.StopMoving();
+    }
+    state.Leading = false;
+    state.Waiting = false;
+    state.LeadTarget.Clear();
 }
 
 void RandomPlayerbotDungeon::Pulled(Player& tank, Creature& target, State& state, uint32_t now)
@@ -449,7 +584,13 @@ bool RandomPlayerbotDungeon::Paused(Group const& group)
 
 std::string RandomPlayerbotDungeon::Describe()
 {
+    std::string tank;
+    {
+        std::lock_guard<std::mutex> guard(NoteLock);
+        if (!TankNote.empty())
+            tank = "; tank " + TankNote;
+    }
     return "pulls " + std::to_string(PullCount.load()) + ", marks " + std::to_string(MarkCount.load()) +
         ", crowd controls " + std::to_string(ControlCount.load()) + ", areas avoided " + std::to_string(AvoidCount.load()) +
-        ", breaks " + std::to_string(BreakCount.load());
+        ", breaks " + std::to_string(BreakCount.load()) + ", leads " + std::to_string(LeadCount.load()) + tank;
 }

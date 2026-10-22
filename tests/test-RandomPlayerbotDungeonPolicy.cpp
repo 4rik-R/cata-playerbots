@@ -47,6 +47,36 @@ TEST_CASE("The tank pulls near the human and bosses only with the human close", 
     CHECK(BetterPull({ 5.0f, 0.0f, false }, { 9.0f, 0.0f, false }));
 }
 
+TEST_CASE("The tank leads to the next pack and waits for the human", "[playerbots][random][dungeon]")
+{
+    // Pack 50 yd ahead along a clear path, human right behind: walk on.
+    LeadView view { 8.0f, 50.0f, 55.0f, 1.0f, false, false, false };
+    CHECK(Lead(view) == LeadStep::Walk);
+    // Close and in sight with the human near: pull.
+    view.TankToPack = 20.0f;
+    view.PathToPack = 21.0f;
+    view.PackInSight = true;
+    CHECK(Lead(view) == LeadStep::Pull);
+    // The human fell behind: wait, and keep waiting until they are close again.
+    view = { 28.0f, 50.0f, 55.0f, 1.0f, false, false, false };
+    CHECK(Lead(view) == LeadStep::Wait);
+    view.HumanToTank = 20.0f;
+    view.Waiting = true;
+    CHECK(Lead(view) == LeadStep::Wait);
+    view.HumanToTank = 12.0f;
+    CHECK(Lead(view) == LeadStep::Walk);
+    // A boss waits for the human right next to the tank.
+    view = { 20.0f, 20.0f, 21.0f, 1.0f, true, true, false };
+    CHECK(Lead(view) == LeadStep::Walk);
+    view.HumanToTank = 10.0f;
+    CHECK(Lead(view) == LeadStep::Pull);
+    // No path, another floor, a long detour or a human gone elsewhere: follow.
+    CHECK(Lead({ 8.0f, 50.0f, 0.0f, 1.0f, false, false, false }) == LeadStep::Follow);
+    CHECK(Lead({ 8.0f, 50.0f, 55.0f, 9.0f, false, false, false }) == LeadStep::Follow);
+    CHECK(Lead({ 8.0f, 30.0f, 90.0f, 1.0f, false, false, false }) == LeadStep::Follow);
+    CHECK(Lead({ 50.0f, 50.0f, 55.0f, 1.0f, false, false, false }) == LeadStep::Follow);
+}
+
 TEST_CASE("Marks follow the tank and keep the human's", "[playerbots][random][dungeon]")
 {
     std::vector<Enemy> pack = { { 1, 100, true, false }, { 2, 300, true, false }, { 3, 200, false, false } };

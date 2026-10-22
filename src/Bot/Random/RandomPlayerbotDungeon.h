@@ -36,6 +36,11 @@ struct State
     uint32_t HazardNoticedMs = 0;
     uint32_t EscapeUntilMs = 0;
     uint32_t NextBreakMs = 0;
+    // Tank walking ahead to the next pack; while set the bot does not follow the human.
+    bool Leading = false;
+    bool Waiting = false;
+    ObjectGuid LeadTarget;
+    uint32_t NextLeadMoveMs = 0;
 };
 
 // A human of the bot's dungeon-finder group in the same dungeon, when the bot is a random bot there.
@@ -44,7 +49,10 @@ Player* Human(Player& bot, uint32_t accountId);
 bool IsTank(Player const& bot);
 
 // Tank: the next enemy to pull, once the group is ready and the human close; nullptr otherwise.
+// With nothing near the human the tank walks on to the next pack (State::Leading) and waits for the human.
 Creature* SelectPull(Player& tank, Player& human, State& state, uint32_t now);
+// Back to following the human.
+void StopLeading(Player& tank, State& state);
 void Pulled(Player& tank, Creature& target, State& state, uint32_t now);
 // Tank in combat: skull on its target, cross on the next, moon for crowd control on a big pack.
 void UpdateMarks(Player& tank, Creature* target, State& state, uint32_t now);
@@ -61,7 +69,7 @@ bool TakeBreak(PlayerbotAI& ai, Player& bot, State& state, uint32_t now);
 void Command(Player& sender, Group& group, RandomPlayerbotDungeonPolicy::Command command);
 bool Paused(Group const& group);
 
-// Status line part: "pulls 3, marks 5, crowd controls 1, areas avoided 2, breaks 4".
+// Status line part: "pulls 3, marks 5, crowd controls 1, areas avoided 2, breaks 4; tank Name: leads to X".
 std::string Describe();
 }
 

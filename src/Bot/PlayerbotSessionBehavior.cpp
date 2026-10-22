@@ -1012,8 +1012,10 @@ void PlayerbotSessionBehavior::UpdateServerOriginMovement(uint32 diff)
 
             _serverOriginFollowTraceRemainingMs = _serverOriginFollowTraceRemainingMs > diff ? _serverOriginFollowTraceRemainingMs - diff : 0;
         }
+        // A dungeon tank walking ahead to the next pack moves on its own (RandomPlayerbotDungeon::SelectPull).
         if (owner && owner->IsAlive() && _player->IsAlive() && !resting && !looting && !mount.BlockFollow && !_serverOriginAttacking.load() &&
-            !_player->IsInCombat() && _serverOriginSupportReachGuid.IsEmpty() && PlayerbotCombatMovement::CanMove(*_player))
+            !_player->IsInCombat() && _serverOriginSupportReachGuid.IsEmpty() && !_dungeon.Leading &&
+            PlayerbotCombatMovement::CanMove(*_player))
         {
             PlayerbotGroup::FollowPosition position = PlayerbotGroup::PositionFor(*_player, *owner);
             bool usePath = PlayerbotGroup::ShouldPathCatchUp(_serverOriginPathCatchUpActive, _player->GetExactDist2d(owner));
@@ -1444,10 +1446,18 @@ void PlayerbotSessionBehavior::UpdateServerOriginCombat(uint32 diff)
         }
         if (!dungeonTank && RandomPlayerbotDungeon::CrowdControl(*_player, _dungeon, now))
             return;
+        bool const wasLeading = _dungeon.Leading;
         if (dungeonTank && !request && !_serverOriginAttacking.load())
             if (Creature* pull = RandomPlayerbotDungeon::SelectPull(*_player, *dungeonHuman, _dungeon, now))
                 if (beginAttack(pull, false))
                     RandomPlayerbotDungeon::Pulled(*_player, *pull, _dungeon, now);
+        if (wasLeading && !_dungeon.Leading)
+            _serverOriginFormationSignature = 0; // follow the human again
+    }
+    if (_dungeon.Leading && (!dungeonTank || !_player->IsAlive() || _player->IsBeingTeleported()))
+    {
+        RandomPlayerbotDungeon::StopLeading(*_player, _dungeon);
+        _serverOriginFormationSignature = 0;
     }
 
     if (!request && !_serverOriginAttacking.load() && _serverOriginAutoAssistEnabled.load())
