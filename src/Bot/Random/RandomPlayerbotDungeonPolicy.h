@@ -239,6 +239,40 @@ inline Point EscapePoint(Point bot, Point center, float radius, Point group, flo
 // Per-bot offset for EscapePoint in [-0.35, 0.35] radians.
 inline float EscapeOffset(uint32_t seed) { return (float(Spread(seed, 7, 0, 700)) - 350.0f) / 1000.0f; }
 
+// Death in a dungeon (M6.3). A dead bot waits this long after the fight for a healer's resurrection,
+// at most this long while the group still fights, then releases its spirit; after a wipe, or when
+// nobody could raise it, it releases after a short moment of its own.
+constexpr uint32_t WaitForResurrectionMs = 30 * 1000;
+constexpr uint32_t WaitWhileFightingMs = 3 * 60 * 1000;
+constexpr uint32_t ReleaseMinMs = 3000, ReleaseMaxMs = 9000;
+// A ghost that did not make it back to the entrance by then is brought in.
+constexpr uint32_t GhostReturnMaxMs = 5 * 60 * 1000;
+// A ghost this close to the edge of the entrance's area trigger steps through it.
+constexpr float EntranceReach = 3.0f;
+constexpr uint32_t GhostMoveEveryMs = 4000;
+
+struct DeathView
+{
+    uint32_t DeadMs;           // since the bot died
+    uint32_t QuietMs;          // since the group stopped fighting; 0 while it fights
+    bool ResurrectionOffered;  // a resurrection waits for an answer
+    bool Wipe;                 // nobody of the group is alive in the dungeon
+    bool HumanReleased;        // a human of the group already runs back as a ghost
+    bool SomeoneCanResurrect;  // a living member in the dungeon knows a resurrection
+};
+
+inline bool Release(DeathView const& view, uint32_t ownDelayMs)
+{
+    if (view.ResurrectionOffered)
+        return false;
+    if (view.Wipe || view.HumanReleased || !view.SomeoneCanResurrect)
+        return view.DeadMs >= ownDelayMs;
+    if (!view.QuietMs)
+        return view.DeadMs >= WaitWhileFightingMs;
+    return view.QuietMs >= WaitForResurrectionMs;
+}
+inline uint32_t ReleaseDelayMs(uint32_t seed, uint32_t event) { return Spread(seed, event, ReleaseMinMs, ReleaseMaxMs); }
+
 enum class Command { None, Wait, Go };
 
 // "bots warten" / "bots weiter", said or written in the group's chat.

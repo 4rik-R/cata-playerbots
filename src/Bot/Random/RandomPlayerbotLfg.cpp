@@ -7,14 +7,20 @@
  */
 #include "RandomPlayerbotLfg.h"
 #include "RandomPlayerbotLfgPolicy.h"
+#include "RandomPlayerbotDungeonPolicy.h"
 #include "RandomPlayerbotMgr.h"
 #include "RandomPlayerbotProgression.h"
+#include "../../Ai/Base/PlayerbotHealerKit.h"
 #include "CharacterCache.h"
+#include "DBCStores.h"
 #include "Group.h"
 #include "LFGMgr.h"
 #include "Log.h"
 #include "Map.h"
+#include "MotionMaster.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "Timer.h"
 #include "World.h"
@@ -53,6 +59,11 @@ std::unordered_map<ObjectGuid, uint32> HumansGoneSince;
 std::unordered_map<ObjectGuid, uint32> AwaySince;
 std::atomic<uint32> QueuedCount { 0 }, GroupCount { 0 }, InDungeonCount { 0 };
 std::atomic<uint32> JoinCount { 0 }, LiftCount { 0 }, RefusedCount { 0 }, LeftCount { 0 };
+// Death in a dungeon: since when a bot lies dead, since when its group is out of combat, since when it runs back.
+std::unordered_map<ObjectGuid, uint32> DeadSince, QuietSince, GhostSince, NextGhostMove;
+std::unordered_map<ObjectGuid, uint32> Deaths; // per bot, varies its release moment
+std::vector<ObjectGuid> WipedGroups;
+std::atomic<uint32> DeathCount { 0 }, ReleaseCount { 0 }, WipeCount { 0 }, ReturnCount { 0 }, FetchCount { 0 };
 
 bool IsHuman(ObjectGuid guid)
 {
@@ -297,6 +308,184 @@ void Accompany(std::vector<Player*> const& bots, uint32 now)
     GroupCount = groups;
     InDungeonCount = inDungeon;
 }
+
+// The dungeon entrance on the ghost's continent: the area trigger that leads into the group's dungeon.
+struct Entrance
+{
+    AreaTriggerEntry const* Trigger = nullptr;
+    AreaTriggerStruct const* Inside = nullptr;
+};
+
+Entrance EntranceFor(Player const& ghost, uint32 dungeonMap)
+{
+    Entrance best;
+    float bestDistance = 0.0f;
+    for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); ++i)
+    {
+        AreaTriggerEntry const* trigger = sAreaTriggerStore.LookupEntry(i);
+        if (!trigger || trigger->ContinentID != ghost.GetMapId())
+            continue;
+        AreaTriggerStruct const* inside = sObjectMgr->GetAreaTrigger(trigger->ID);
+        if (!inside || inside->target_mapId != dungeonMap)
+            continue;
+        float distance = ghost.GetDistance(trigger->Pos.X, trigger->Pos.Y, trigger->Pos.Z);
+        if (!best.Trigger || distance < bestDistance)
+        {
+            best = { trigger, inside };
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+bool AtEntrance(Player const& ghost, AreaTriggerEntry const& trigger)
+{
+    using RandomPlayerbotDungeonPolicy::EntranceReach;
+    if (trigger.Radius > 0.0f)
+        return ghost.GetDistance(trigger.Pos.X, trigger.Pos.Y, trigger.Pos.Z) <= trigger.Radius + EntranceReach;
+    float half = std::max(trigger.Box_length, trigger.Box_width) / 2.0f;
+    return ghost.GetExactDist2d(trigger.Pos.X, trigger.Pos.Y) <= half + EntranceReach &&
+        std::abs(ghost.GetPositionZ() - trigger.Pos.Z) <= trigger.Box_height / 2.0f + EntranceReach;
+}
+
+// Into the dungeon at its entrance; a ghost whose corpse lies there comes back to life on arrival.
+bool EnterDungeon(Player& ghost, uint32 dungeonMap, AreaTriggerStruct const* inside)
+{
+    if (!inside)
+        inside = sObjectMgr->GetMapEntranceTrigger(dungeonMap);
+    return inside && ghost.TeleportTo(inside->target_mapId, inside->target_X, inside->target_Y, inside->target_Z,
+        inside->target_Orientation);
+}
+
+// Dead bots of a dungeon group with a human: wait for a resurrection, release the spirit, run back from the
+// graveyard as a ghost and come in again at the entrance, like players do. After a wipe everybody runs back.
+void Recover(std::vector<Player*> const& bots, uint32 now)
+{
+    using namespace RandomPlayerbotDungeonPolicy;
+    std::vector<ObjectGuid> wiped;
+    for (Player* bot : bots)
+    {
+        if (!bot)
+            continue;
+        ObjectGuid guid = bot->GetGUID();
+        Group* group = bot->GetGroup();
+        uint32 dungeonMap = group && group->isLFGGroup() ? sLFGMgr->GetDungeonMapId(group->GetGUID()) : 0;
+        if (!dungeonMap || bot->IsAlive())
+        {
+            DeadSince.erase(guid);
+            QuietSince.erase(guid);
+            GhostSince.erase(guid);
+            NextGhostMove.erase(guid);
+            continue;
+        }
+        if (!bot->IsInWorld() || bot->IsBeingTeleported())
+            continue;
+
+        bool humanOnline = false, humanReleased = false, anyoneAlive = false, fighting = false, canResurrect = false;
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->GetSource();
+            if (!member || !member->IsInWorld())
+                continue;
+            bool human = !member->GetSession()->IsServerOrigin();
+            humanOnline = humanOnline || human;
+            humanReleased = humanReleased || (human && member->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST));
+            if (member->GetMapId() != dungeonMap || !member->IsAlive())
+                continue;
+            anyoneAlive = true;
+            fighting = fighting || member->IsInCombat();
+            uint32 resurrection = PlayerbotHealerKit::For(member->getClass()).Resurrect;
+            canResurrect = canResurrect || (resurrection && member->HasSpell(resurrection));
+        }
+        if (!humanOnline)
+            continue; // the bots leave with the group (Accompany)
+
+        if (!bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST))
+        {
+            // Lying dead in the dungeon.
+            if (bot->GetMapId() != dungeonMap || bot->getDeathState() != CORPSE)
+                continue;
+            if (!DeadSince.count(guid))
+            {
+                DeadSince[guid] = now;
+                ++Deaths[guid];
+                ++DeathCount;
+            }
+            if (!anyoneAlive)
+            {
+                wiped.push_back(group->GetGUID());
+                if (std::find(WipedGroups.begin(), WipedGroups.end(), group->GetGUID()) == WipedGroups.end())
+                {
+                    WipedGroups.push_back(group->GetGUID());
+                    ++WipeCount;
+                    TC_LOG_INFO("module.playerbots", "PB-DUNGEON: wipe in %s's group", bot->GetName().c_str());
+                }
+            }
+            if (fighting)
+                QuietSince.erase(guid);
+            else if (!QuietSince.count(guid))
+                QuietSince[guid] = now;
+            DeathView view { getMSTimeDiff(DeadSince[guid], now),
+                QuietSince.count(guid) ? std::max<uint32>(getMSTimeDiff(QuietSince[guid], now), 1) : 0,
+                bot->IsResurrectRequested(), !anyoneAlive, humanReleased, canResurrect };
+            if (!Release(view, ReleaseDelayMs(guid.GetCounter(), Deaths[guid])))
+                continue;
+            // As the client's spirit release (WorldSession::HandleRepopRequestOpcode).
+            bot->RemovePet(nullptr, PET_SAVE_DISMISS, true);
+            bot->BuildPlayerRepop();
+            bot->RepopAtGraveyard();
+            DeadSince.erase(guid);
+            QuietSince.erase(guid);
+            GhostSince[guid] = now;
+            ++ReleaseCount;
+            TC_LOG_INFO("module.playerbots", "PB-DUNGEON: %s released its spirit", bot->GetName().c_str());
+            continue;
+        }
+
+        // A ghost: back to the entrance, or brought there when it takes too long.
+        if (!GhostSince.count(guid))
+            GhostSince[guid] = now;
+        if (bot->GetMapId() == dungeonMap)
+        {
+            // A graveyard inside the dungeon: the ghost stands right next to its group.
+            bot->ResurrectPlayer(0.5f);
+            bot->SpawnCorpseBones();
+            ++ReturnCount;
+            continue;
+        }
+        Entrance entrance = EntranceFor(*bot, dungeonMap);
+        bool late = getMSTimeDiff(GhostSince[guid], now) >= GhostReturnMaxMs;
+        if (!entrance.Trigger || late)
+        {
+            if (EnterDungeon(*bot, dungeonMap, entrance.Inside))
+            {
+                GhostSince.erase(guid);
+                ++FetchCount;
+                TC_LOG_INFO("module.playerbots", "PB-DUNGEON: %s brought to the dungeon entrance", bot->GetName().c_str());
+            }
+            continue;
+        }
+        if (AtEntrance(*bot, *entrance.Trigger))
+        {
+            if (EnterDungeon(*bot, dungeonMap, entrance.Inside))
+            {
+                GhostSince.erase(guid);
+                ++ReturnCount;
+                TC_LOG_INFO("module.playerbots", "PB-DUNGEON: %s ran back into the dungeon", bot->GetName().c_str());
+            }
+            continue;
+        }
+        auto next = NextGhostMove.find(guid);
+        if (next == NextGhostMove.end() || int32(now - next->second) >= 0)
+        {
+            bot->GetMotionMaster()->MovePoint(0, entrance.Trigger->Pos.X, entrance.Trigger->Pos.Y, entrance.Trigger->Pos.Z, true);
+            NextGhostMove[guid] = now + GhostMoveEveryMs;
+        }
+    }
+    // A group with someone alive again in the dungeon can wipe anew.
+    WipedGroups.erase(std::remove_if(WipedGroups.begin(), WipedGroups.end(),
+        [&](ObjectGuid group) { return std::find(wiped.begin(), wiped.end(), group) == wiped.end(); }), WipedGroups.end());
+}
 }
 
 void RandomPlayerbotLfg::Update(std::vector<Player*> const& bots)
@@ -305,6 +494,7 @@ void RandomPlayerbotLfg::Update(std::vector<Player*> const& bots)
     std::vector<HumanQueue> queues = HumanQueues();
     Answer(bots, queues);
     Accompany(bots, now);
+    Recover(bots, now);
     for (HumanQueue const& queue : queues)
     {
         std::vector<uint8_t> queuedRoles;
@@ -331,5 +521,7 @@ std::string RandomPlayerbotLfg::Describe()
     return "lfg queued " + std::to_string(QueuedCount.load()) + ", lfg groups " + std::to_string(GroupCount.load()) +
         ", in dungeons " + std::to_string(InDungeonCount.load()) + ", lfg joins " + std::to_string(JoinCount.load()) +
         ", lifted " + std::to_string(LiftCount.load()) + ", lfg refused " + std::to_string(RefusedCount.load()) +
-        ", left dungeons " + std::to_string(LeftCount.load());
+        ", left dungeons " + std::to_string(LeftCount.load()) + "; dungeon deaths " + std::to_string(DeathCount.load()) +
+        ", wipes " + std::to_string(WipeCount.load()) + ", released " + std::to_string(ReleaseCount.load()) +
+        ", ran back " + std::to_string(ReturnCount.load()) + ", brought back " + std::to_string(FetchCount.load());
 }

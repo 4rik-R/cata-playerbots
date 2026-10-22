@@ -1078,9 +1078,28 @@ void PlayerbotSessionBehavior::UpdateServerOriginParty()
 
     if (Group* group = _player->GetGroup())
     {
-        if (!_serverOriginPartyControllerGuidLow.load() && group->isLFGGroup() &&
-            RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
-            AdoptDungeonGroupHuman(*group);
+        if (group->isLFGGroup() && RandomPlayerbotMgr::IsRandomAccount(_session.GetAccountId()))
+        {
+            uint32 controllerGuidLow = _serverOriginPartyControllerGuidLow.load();
+            if (!controllerGuidLow)
+                AdoptDungeonGroupHuman(*group);
+            else if (!_serverOriginFollowTargetGuidLow.load() && !_serverOriginMovementRequest.load() &&
+                _player->IsAlive() && !_player->IsInCombat() && !_player->IsBeingTeleported() && !_ai.IsStaying() &&
+                !_serverOriginAttacking.load())
+            {
+                // Back on its feet after a death (resurrected, or in again at the entrance after running back):
+                // the bot goes to its human however far away, once the human is alive in the same dungeon.
+                Player* human = _player->GetMap()->GetPlayer(ObjectGuid::Create<HighGuid::Player>(controllerGuidLow));
+                if (human && human->IsAlive() && !human->IsBeingTeleported())
+                {
+                    _serverOriginRecoveryOwnerGuidLow = 0;
+                    RequestServerOriginFollow(controllerGuidLow);
+                    _serverOriginPartyControllerGuidLow.store(controllerGuidLow);
+                    TC_LOG_INFO("module.playerbots", "PB-LFG: %s back with %s after a death", _player->GetName().c_str(),
+                        human->GetName().c_str());
+                }
+            }
+        }
         return;
     }
 
@@ -1154,8 +1173,8 @@ void PlayerbotSessionBehavior::AdoptDungeonGroupHuman(Group& group)
 void PlayerbotSessionBehavior::UpdateServerOriginResurrection()
 {
     Player* bot = _ai.GetBot();
-    if (!bot || bot->IsAlive() || !bot->IsResurrectRequested() ||
-        !PlayerbotModuleEnginePriestHealEnabled())
+    // Any bot accepts a resurrection from its party, whatever the priest healing setting.
+    if (!bot || bot->IsAlive() || !bot->IsResurrectRequested())
         return;
 
     Group* group = bot->GetGroup();
