@@ -127,6 +127,30 @@ TEST_CASE("A bot steps just outside a harmful area towards its group", "[playerb
     CHECK(fromMiddle.X > 0.0f);
 }
 
+TEST_CASE("A dead bot waits for a healer, then releases its spirit", "[playerbots][random][dungeon]")
+{
+    uint32_t delay = ReleaseDelayMs(7, 1);
+    CHECK(delay >= ReleaseMinMs);
+    CHECK(delay <= ReleaseMaxMs);
+    // A healer is alive: wait through the fight and 30 s after it.
+    DeathView view { 20000, 0, false, false, false, true };
+    CHECK_FALSE(Release(view, delay));
+    view.DeadMs = WaitWhileFightingMs;
+    CHECK(Release(view, delay));
+    view = { 60000, 10000, false, false, false, true };
+    CHECK_FALSE(Release(view, delay));
+    view.QuietMs = WaitForResurrectionMs;
+    CHECK(Release(view, delay));
+    // An offered resurrection is never run away from.
+    view.ResurrectionOffered = true;
+    CHECK_FALSE(Release(view, delay));
+    // A wipe, a human already running back, or nobody to raise the bot: release after its own moment.
+    CHECK_FALSE(Release({ delay - 1, 0, false, true, false, true }, delay));
+    CHECK(Release({ delay, 0, false, true, false, true }, delay));
+    CHECK(Release({ delay, 5000, false, false, true, true }, delay));
+    CHECK(Release({ delay, 0, false, false, false, false }, delay));
+}
+
 TEST_CASE("Wait and go commands in German", "[playerbots][random][dungeon]")
 {
     CHECK(ParseCommand("bots warten") == Command::Wait);
