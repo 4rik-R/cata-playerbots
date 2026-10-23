@@ -10,6 +10,7 @@
 #include "../Ai/Base/PlayerbotEquipmentInspection.h"
 #include "../Ai/Base/PlayerbotQuestAccept.h"
 #include "../Bot/Cmd/PlayerbotQuestChat.h"
+#include "../Bot/Random/RandomPlayerbotChat.h"
 #include "../Bot/Random/RandomPlayerbotDungeon.h"
 #include "PlayerbotSecurity.h"
 #include "PlayerbotSessionHooks.h"
@@ -173,7 +174,11 @@ public:
         bool range = ExtractPlayerbotRangeChat(command, rangeParam);
         bool strategy = PlayerbotStrategyControl::Recognizes(command);
         if (!range && !strategy && !ParsePlayerbotControlChat(command, action))
+        {
+            // Not a command: random bots answer like players.
+            RandomPlayerbotChat::HumanWhisper(*sender, *receiver, message);
             return;
+        }
 
         switch (strategy ? PlayerbotControl::DispatchStrategy(*sender, receiver->GetGUID(), command) :
             range ? PlayerbotControl::DispatchRange(*sender, receiver->GetGUID(), rangeParam) :
@@ -211,6 +216,15 @@ public:
         auto command = RandomPlayerbotDungeonPolicy::ParseCommand(message);
         if (Group* group = sender->GetGroup(); group && command != RandomPlayerbotDungeonPolicy::Command::None)
             RandomPlayerbotDungeon::Command(*sender, *group, command);
+        else if (type == CHAT_MSG_SAY)
+            RandomPlayerbotChat::HumanSay(*sender, message);
+    }
+
+    void OnChat(Player* sender, uint32 type, uint32 lang, std::string& message, Channel* channel) override
+    {
+        if (type == CHAT_MSG_CHANNEL && lang != LANG_ADDON && sender && channel && sender->GetSession() &&
+            !sender->GetSession()->IsServerOrigin())
+            RandomPlayerbotChat::HumanChannel(*sender, *channel, message);
     }
 
     void OnChat(Player* sender, uint32 type, uint32 lang, std::string& message, Group* group) override
@@ -251,7 +265,12 @@ public:
         if (acceptQuest && !acceptArgs)
         { ChatHandler(sender->GetSession()).SendSysMessage("Select a nearby quest giver and use accept <numeric quest ID>."); return; }
         if (!repair && !inspectQuests && !rewardQuest && !acceptQuest && !applyGear && !gear && !range && !strategy && !ParsePlayerbotControlChat(command, action))
+        {
+            // Not a command: random bots of the group may answer.
+            if (partyChat)
+                RandomPlayerbotChat::HumanParty(*sender, *group, message);
             return;
+        }
         if (strategy && !PlayerbotStrategyControl::Parse(command))
         {
             ChatHandler(sender->GetSession()).SendSysMessage("Strategies: co|nc|de ?; nc +food,-loot,? (only food/loot support +, -, ~).");

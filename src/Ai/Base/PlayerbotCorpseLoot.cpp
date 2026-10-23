@@ -9,6 +9,7 @@
 #include "../../Bot/PlayerbotAI.h"
 #include "../../Bot/Engine/Value/Value.h"
 #include "../../Script/PlayerbotConfig.h"
+#include "../../Bot/Random/RandomPlayerbotChat.h"
 #include "PlayerbotSecurity.h"
 #include "Creature.h"
 #include "Loot.h"
@@ -250,6 +251,8 @@ void PlayerbotCorpseLoot::ProcessWorld(WorldSession& session, Mailbox& mailbox, 
                     WorldPacket store(CMSG_AUTOSTORE_LOOT_ITEM, 1);
                     store << uint8(item.LootListID);
                     session.HandleAutostoreLootItemOpcode(store);
+                    if (proto && proto->GetQuality() >= ITEM_QUALITY_RARE && bot->HasItemCount(item.Loot.ItemID, 1, true))
+                        RandomPlayerbotChat::Loot(*bot, item.Loot.ItemID);
                 }
             }
             if (bot->GetLootGUID() == request->Corpse)

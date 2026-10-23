@@ -436,3 +436,54 @@ Playerbots.Random.Level.Max = 85
 
 Playerbots.Random.Quest.Enabled = 0
 
+#    Playerbots.Chat.Enabled
+#        Description: Random bots chat in German. They join General and Trade
+#                     and post a suggestion, trade offer or remark now and then
+#                     in zones where a player is (one line per channel and zone
+#                     every ChatterMin-ChatterMaxSeconds). They comment on rare
+#                     loot, levels, quests and rare kills, greet a new group,
+#                     call for heals or mana in a fight, answer whispers always,
+#                     party lines when named (else sometimes), /say sometimes
+#                     and channel lines rarely, after a typing delay of 3-10 s,
+#                     and answer emotes with emotes. Lines are from
+#                     mod-playerbots' German texts plus keyword replies that use
+#                     the bot's zone, level, class and activity.
+#                     Requires Playerbots.Random.Enabled.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+#    Playerbots.Chat.ChatterMinSeconds / ChatterMaxSeconds  Default 120 and 240.
+
+Playerbots.Chat.Enabled = 0
+Playerbots.Chat.ChatterMinSeconds = 120
+Playerbots.Chat.ChatterMaxSeconds = 240
+
+#    Playerbots.Chat.Ai.Enabled
+#        Description: Answers come from a local Ollama server (/api/chat). Each
+#                     bot has a small persona and knows its class, level, zone,
+#                     activity and the last 5 lines of the conversation. Requests
+#                     run in the background; without an answer within
+#                     TimeoutSeconds the bot uses its own line. After 3 failures
+#                     in a row the AI rests for a minute. Bots answer each other
+#                     in a group (at most 2 exchanges) only with the AI and only
+#                     while a player writes. Requires Playerbots.Chat.Enabled.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+#    Playerbots.Chat.Ai.Host           Default "host.docker.internal".
+#    Playerbots.Chat.Ai.Port           Default 11434.
+#    Playerbots.Chat.Ai.Model          Ollama model name. Default "gemma3:4b".
+#    Playerbots.Chat.Ai.TimeoutSeconds Default 8.
+#    Playerbots.Chat.Ai.MaxPerMinute   AI answers per minute, all bots together. Default 10.
+#    Playerbots.Chat.Ai.MaxTokens      Longest answer in tokens. Default 60.
+#    Playerbots.Chat.Ai.Temperature    Default 0.8.
+#    Playerbots.Chat.Ai.KeepAlive      How long Ollama keeps the model loaded. Default "30m".
+
+Playerbots.Chat.Ai.Enabled = 0
+Playerbots.Chat.Ai.Host = "host.docker.internal"
+Playerbots.Chat.Ai.Port = 11434
+Playerbots.Chat.Ai.Model = "gemma3:4b"
+Playerbots.Chat.Ai.TimeoutSeconds = 8
+Playerbots.Chat.Ai.MaxPerMinute = 10
+Playerbots.Chat.Ai.MaxTokens = 60
+Playerbots.Chat.Ai.Temperature = 0.8
+Playerbots.Chat.Ai.KeepAlive = "30m"
+
