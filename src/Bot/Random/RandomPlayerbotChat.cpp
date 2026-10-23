@@ -90,7 +90,7 @@ bool Reached(uint32 now, uint32 at) { return int32(now - at) >= 0; }
 
 enum class Kind : uint8 { Whisper, Party, Say, Channel, Emote, Level, Quest, Kill, Loot };
 
-struct Event
+struct ChatEvent
 {
     Kind What = Kind::Whisper;
     ObjectGuid Actor;
@@ -138,7 +138,7 @@ struct Conversation
 RandomPlayerbotChat::Settings Config;
 std::atomic<bool> IsEnabled { false };
 std::mutex EventLock;
-std::vector<Event> Events;
+std::vector<ChatEvent> Events;
 
 // World thread only from here.
 std::vector<Line> Outgoing;
@@ -152,7 +152,7 @@ uint64 NextAiId = 0;
 uint32 EventCounter = 0;
 std::atomic<uint32> LineCount { 0 }, ReplyCount { 0 }, EmoteCount { 0 }, AiUsed { 0 };
 
-void Queue(Event event)
+void Queue(ChatEvent event)
 {
     std::lock_guard lock(EventLock);
     if (Events.size() < 256)
@@ -824,7 +824,7 @@ void Announce(Player& bot, Lines lines, Values const& values, uint32 groupChance
         SayInChannel(bot, ChannelGeneral, Compose(lines, values), now);
 }
 
-void HandleChat(Event const& event, BotMap const& bots, uint32 now)
+void HandleChat(ChatEvent const& event, BotMap const& bots, uint32 now)
 {
     Player* human = ObjectAccessor::FindConnectedPlayer(event.Actor);
     if (!human || !human->IsInWorld())
@@ -932,7 +932,7 @@ void HandleChat(Event const& event, BotMap const& bots, uint32 now)
     }
 }
 
-void HandleEmote(Event const& event, BotMap const& bots, uint32 now)
+void HandleEmote(ChatEvent const& event, BotMap const& bots, uint32 now)
 {
     Player* human = ObjectAccessor::FindConnectedPlayer(event.Actor);
     uint32 answer = AnswerEmote(event.Value);
@@ -969,7 +969,7 @@ void HandleEmote(Event const& event, BotMap const& bots, uint32 now)
         }
 }
 
-void HandleOccasion(Event const& event, BotMap const& bots, uint32 now)
+void HandleOccasion(ChatEvent const& event, BotMap const& bots, uint32 now)
 {
     Player* player = ObjectAccessor::FindConnectedPlayer(event.Actor);
     if (!player || !player->IsInWorld())
@@ -1210,7 +1210,7 @@ public:
         // The core passes the sound index first and the text emote second.
         if (!IsEnabled.load(std::memory_order_relaxed) || !player || !IsHuman(*player))
             return;
-        Event event;
+        ChatEvent event;
         event.What = Kind::Emote;
         event.Actor = player->GetGUID();
         event.Target = target;
@@ -1222,7 +1222,7 @@ public:
     {
         if (!IsEnabled.load(std::memory_order_relaxed) || !player || !player->IsInWorld())
             return;
-        Event event;
+        ChatEvent event;
         event.What = Kind::Level;
         event.Actor = player->GetGUID();
         event.Value = player->getLevel();
@@ -1235,7 +1235,7 @@ public:
         if (!IsEnabled.load(std::memory_order_relaxed) || !player || !IsRandomBot(*player) ||
             player->GetQuestStatus(questId) != QUEST_STATUS_REWARDED)
             return;
-        Event event;
+        ChatEvent event;
         event.What = Kind::Quest;
         event.Actor = player->GetGUID();
         event.Value = questId;
@@ -1250,7 +1250,7 @@ public:
         if (!info || (info->rank != CREATURE_ELITE_RARE && info->rank != CREATURE_ELITE_RAREELITE &&
             info->rank != CREATURE_ELITE_WORLDBOSS))
             return;
-        Event event;
+        ChatEvent event;
         event.What = Kind::Kill;
         event.Actor = killer->GetGUID();
         event.Value = info->rank;
@@ -1285,12 +1285,12 @@ void RandomPlayerbotChat::Update(std::vector<Player*> const& bots)
         FirstSeen.emplace(bot->GetGUID(), now);
     }
 
-    std::vector<Event> events;
+    std::vector<ChatEvent> events;
     {
         std::lock_guard lock(EventLock);
         events.swap(Events);
     }
-    for (Event const& event : events)
+    for (ChatEvent const& event : events)
     {
         switch (event.What)
         {
@@ -1396,7 +1396,7 @@ void RandomPlayerbotChat::Loot(Player& bot, uint32_t itemId)
     ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
     if (!proto || proto->GetQuality() < ITEM_QUALITY_RARE)
         return;
-    Event event;
+    ChatEvent event;
     event.What = Kind::Loot;
     event.Actor = bot.GetGUID();
     event.Value = itemId;
