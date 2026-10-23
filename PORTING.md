@@ -1,5 +1,26 @@
 # Port provenance and remaining work
 
+## Random-bot chat — 2026-10-23
+
+Donor: mod-playerbots master `e88cc4099e69f35126b28942a412ca702d20453b`,
+table `ai_playerbot_texts` (data/sql/playerbots/base). The German column
+`text_loc3` of the groups suggest_instance, suggest_quest, suggest_trade,
+suggest_something, suggest_sell, hello, goodbye, broadcast_looting_item_rare/epic/
+legendary, broadcast_quest_turned_in, broadcast_killed_rare/rareelite/worldboss,
+broadcast_levelup_generic/10x/max_level, low mana, low health, critical health,
+aoe and reply was copied into `src/Bot/Random/RandomPlayerbotChatTexts.h`,
+keeping only lines whose placeholders this port fills and leaving out the toxic,
+taunt, PvP and spam lines. The occasions (suggestions in General/Trade, loot,
+level, quest and rare-kill broadcasts, combat calls) follow the donor's
+broadcast and suggestion design; the code is new. German keyword intents, the
+own reply lines and the activity facts are written for this port, since the
+donor recognises English keywords only.
+
+The local AI client (`RandomPlayerbotChatAi`) is written from scratch against
+Ollama's `/api/chat`. mod-ollama-chat (AGPL) was read for its design only:
+background requests, a per-minute budget, bot-to-bot talk only while a human
+writes and a short conversation memory. No code was taken from it.
+
 ## Selected-NPC maintenance follow-up — 2026-10-11
 
 Fetched donor remote master at `79bd428115c8f33b74b13de23b133d49c3f75c60`.

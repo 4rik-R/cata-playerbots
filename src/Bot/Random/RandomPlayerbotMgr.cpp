@@ -6,6 +6,7 @@
  */
 #include "RandomPlayerbotMgr.h"
 #include "RandomPlayerbotCapital.h"
+#include "RandomPlayerbotChat.h"
 #include "RandomPlayerbotCrossings.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotLfg.h"
@@ -52,6 +53,8 @@ namespace
     std::vector<RandomBotSlot> Slots;
     uint32 Timer = 0;
     uint32 LfgTimer = 0;
+    uint32 ChatTimer = 0;
+    constexpr uint32 ChatPaceMs = 500;
     bool Paused = false;
     bool ResetPending = false;
     bool ResumeAfterReset = false;
@@ -303,6 +306,18 @@ void RandomPlayerbotMgr::Update(uint32_t diff)
                     bots.push_back(bot);
         RandomPlayerbotLfg::Update(bots);
     }
+    ChatTimer += diff;
+    if (ChatTimer >= ChatPaceMs && RandomPlayerbotChat::Enabled() && !Paused && !ResetPending &&
+        !sWorld->IsStopped() && !sWorld->IsShuttingDown())
+    {
+        ChatTimer = 0;
+        std::vector<Player*> bots;
+        for (RandomBotSlot const& slot : Slots)
+            if (slot.GuidLow)
+                if (Player* bot = ObjectAccessor::FindPlayerByLowGUID(slot.GuidLow); bot && bot->IsInWorld())
+                    bots.push_back(bot);
+        RandomPlayerbotChat::Update(bots);
+    }
     Timer += diff;
     if (Timer < Settings.IntervalMs)
         return;
@@ -410,7 +425,7 @@ std::string RandomPlayerbotMgr::Describe()
             std::to_string(RandomPlayerbotProgression::GetSettings().MaxLevel) : std::string("off")) +
         ", " + RandomPlayerbotQuests::Describe() + "; " + RandomPlayerbotCapital::Describe() + "; " +
         RandomPlayerbotCrossings::Describe() + "; " + RandomPlayerbotLfg::Describe() + 
-        "; " + RandomPlayerbotDungeon::Describe() + ".";
+        "; " + RandomPlayerbotDungeon::Describe() + "; " + RandomPlayerbotChat::Describe() + ".";
 }
 
 bool RandomPlayerbotMgr::IsRandomAccount(uint32_t accountId)

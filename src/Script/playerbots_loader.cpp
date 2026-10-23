@@ -7,6 +7,7 @@
 #include "World.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotMgr.h"
+#include "RandomPlayerbotChat.h"
 
 void AddSC_playerbot_chat_commands();
 void UpdatePlayerbotAddonStrategyBatches(); // World-thread inbox/ACK pump; never reads engines.
@@ -35,4 +36,5 @@ void AddSC_playerbots_module()
 {
     new PlayerbotsModuleWorldScript();
     AddSC_playerbot_chat_commands();
+    AddSC_random_playerbot_chat();
 }

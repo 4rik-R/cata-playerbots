@@ -9,6 +9,8 @@
 #include "PlayerbotAddonProtocol.h"
 #include "RandomPlayerbotFactory.h"
 #include "RandomPlayerbotMgr.h"
+#include "RandomPlayerbotChat.h"
+#include "RandomPlayerbotChatAi.h"
 #include "RandomPlayerbotProgression.h"
 #include "RandomPlayerbotQuests.h"
 #include "Config.h"
@@ -173,6 +175,22 @@ void LoadPlayerbotModuleSettings(World& world, bool moduleConfigsValid)
     // Questing runs inside the grind loop and places bots by level.
     RandomPlayerbotQuests::Configure(RandomGrindEnabled.load(std::memory_order_relaxed) && progression.Enabled &&
         sConfigMgr->GetBoolDefault("Playerbots.Random.Quest.Enabled", false));
+    RandomPlayerbotChat::Settings chat;
+    chat.Enabled = randomSettings.Enabled && sConfigMgr->GetBoolDefault("Playerbots.Chat.Enabled", false);
+    chat.ChatterMinMs = uint32(std::max(10, sConfigMgr->GetIntDefault("Playerbots.Chat.ChatterMinSeconds", 120))) * 1000;
+    chat.ChatterMaxMs = uint32(std::max(10, sConfigMgr->GetIntDefault("Playerbots.Chat.ChatterMaxSeconds", 240))) * 1000;
+    RandomPlayerbotChat::Configure(chat);
+    RandomPlayerbotChatAi::Settings ai;
+    ai.Enabled = chat.Enabled && sConfigMgr->GetBoolDefault("Playerbots.Chat.Ai.Enabled", false);
+    ai.Host = sConfigMgr->GetStringDefault("Playerbots.Chat.Ai.Host", "host.docker.internal");
+    ai.Port = uint32(std::clamp(sConfigMgr->GetIntDefault("Playerbots.Chat.Ai.Port", 11434), 1, 65535));
+    ai.Model = sConfigMgr->GetStringDefault("Playerbots.Chat.Ai.Model", "gemma3:4b");
+    ai.TimeoutMs = uint32(std::clamp(sConfigMgr->GetIntDefault("Playerbots.Chat.Ai.TimeoutSeconds", 8), 1, 60)) * 1000;
+    ai.MaxPerMinute = uint32(std::clamp(sConfigMgr->GetIntDefault("Playerbots.Chat.Ai.MaxPerMinute", 10), 1, 120));
+    ai.MaxTokens = uint32(std::clamp(sConfigMgr->GetIntDefault("Playerbots.Chat.Ai.MaxTokens", 60), 16, 200));
+    ai.Temperature = std::clamp(sConfigMgr->GetFloatDefault("Playerbots.Chat.Ai.Temperature", 0.8f), 0.0f, 2.0f);
+    ai.KeepAlive = sConfigMgr->GetStringDefault("Playerbots.Chat.Ai.KeepAlive", "30m");
+    RandomPlayerbotChatAi::Configure(ai);
     SetPlayerbotAddonBridgeEnabled(moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.MultiBot.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_ENABLED, moduleConfigsValid && sConfigMgr->GetBoolDefault("Playerbots.Dev.Enabled", false));
     world.setBoolConfig(CONFIG_PLAYERBOTS_DEV_GREETING_ENABLED, sConfigMgr->GetBoolDefault("Playerbots.Dev.GreetingOnJoin", true));
